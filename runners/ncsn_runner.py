@@ -85,7 +85,7 @@ class NCSNRunner():
             def tb_hook():
                 # for i in range(len(sigmas)):
                 #     if test_loss_per_sigma[i] is not None:
-                #         tb_logger.add_scalar('test_loss_sigma_{}'.format(i), test_loss_per_sigma[i],
+                #         tb_logger.add_scalar(f'test_loss_sigma_{i}', test_loss_per_sigma[i],
                 #                              global_step=step)
                 pass
 
@@ -117,12 +117,14 @@ class NCSNRunner():
                 X = X.to(self.config.device)
                 X = data_transform(self.config, X)
 
-                # loss = anneal_dsm_score_estimation(score, X, sigmas, None,
-                #                                    self.config.training.anneal_power,
-                #                                    hook)
-                loss = anneal_dsm_score_estimation_gennorm(score, X, sigmas, None,
-                                                           self.config.training.anneal_power,
-                                                           hook)
+                if self.config.beta == 2.0:
+                    loss = anneal_dsm_score_estimation(score, X, sigmas, None,
+                                                       self.config.training.anneal_power,
+                                                       hook)
+                else:
+                    loss = anneal_dsm_score_estimation_gennorm(score, X, sigmas, None,
+                                                               self.config.training.anneal_power,
+                                                               hook)
                 tb_logger.add_scalar('loss', loss, global_step=step)
                 tb_hook()
 
@@ -155,12 +157,14 @@ class NCSNRunner():
                     test_X = data_transform(self.config, test_X)
 
                     with torch.no_grad():
-                        # test_dsm_loss = anneal_dsm_score_estimation(test_score, test_X, sigmas, None,
-                        #                                             self.config.training.anneal_power,
-                        #                                             hook=test_hook)
-                        test_dsm_loss = anneal_dsm_score_estimation_gennorm(test_score, test_X, sigmas, None,
-                                                                            self.config.training.anneal_power,
-                                                                            hook=test_hook)
+                        if self.config.beta == 2.0:
+                            test_dsm_loss = anneal_dsm_score_estimation(test_score, test_X, sigmas, None,
+                                                                        self.config.training.anneal_power,
+                                                                        hook=test_hook)
+                        else:
+                            test_dsm_loss = anneal_dsm_score_estimation_gennorm(test_score, test_X, sigmas, None,
+                                                                                self.config.training.anneal_power,
+                                                                                hook=test_hook)
                         tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                         test_tb_hook()
                         logging.info(f"step: {step}, test_loss: {test_dsm_loss.item()}")
@@ -188,8 +192,6 @@ class NCSNRunner():
 
                         test_score.eval()
 
-                        ## Different part from NeurIPS 2019.
-                        ## Random state will be affected because of sampling during training time.
                         init_samples = torch.rand(36, self.config.data.channels,
                                                   self.config.data.image_size, self.config.data.image_size,
                                                   device=self.config.device)
@@ -209,8 +211,8 @@ class NCSNRunner():
 
                         image_grid = make_grid(sample, 6)
                         save_image(image_grid,
-                                   os.path.join(self.args.log_sample_path, 'image_grid_{}.png'.format(step)))
-                        torch.save(sample, os.path.join(self.args.log_sample_path, 'samples_{}.pth'.format(step)))
+                                   os.path.join(self.args.log_sample_path, f'image_grid_{step}.png'))
+                        torch.save(sample, os.path.join(self.args.log_sample_path, f'samples_{step}.pth'))
 
                         del test_score
                         del all_samples
@@ -274,8 +276,8 @@ class NCSNRunner():
                         sample = inverse_data_transform(self.config, sample)
 
                         image_grid = make_grid(sample, int(np.sqrt(self.config.sampling.batch_size)))
-                        save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(i)))
-                        torch.save(sample, os.path.join(self.args.image_folder, 'completion_{}.pth'.format(i)))
+                        save_image(image_grid, os.path.join(self.args.image_folder, f'image_grid_{i}.png'))
+                        torch.save(sample, os.path.join(self.args.image_folder, f'completion_{i}.pth'))
                 else:
                     sample = all_samples[-1].view(self.config.sampling.batch_size, self.config.data.channels,
                                                   self.config.data.image_size,
@@ -285,9 +287,9 @@ class NCSNRunner():
 
                     image_grid = make_grid(sample, int(np.sqrt(self.config.sampling.batch_size)))
                     save_image(image_grid, os.path.join(self.args.image_folder,
-                                                        'image_grid_{}.png'.format(self.config.sampling.ckpt_id)))
+                                                        f'image_grid_{self.config.sampling.ckpt_id}.png'))
                     torch.save(sample, os.path.join(self.args.image_folder,
-                                                    'completion_{}.pth'.format(self.config.sampling.ckpt_id)))
+                                                    f'completion_{self.config.sampling.ckpt_id}.pth'))
 
             elif self.config.sampling.interpolation:
                 if self.config.sampling.data_init:
@@ -319,8 +321,8 @@ class NCSNRunner():
                         sample = inverse_data_transform(self.config, sample)
 
                         image_grid = make_grid(sample, nrow=self.config.sampling.n_interpolations)
-                        save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(i)))
-                        torch.save(sample, os.path.join(self.args.image_folder, 'samples_{}.pth'.format(i)))
+                        save_image(image_grid, os.path.join(self.args.image_folder, f'image_grid_{i}.png'))
+                        torch.save(sample, os.path.join(self.args.image_folder, f'samples_{i}.pth'))
                 else:
                     sample = all_samples[-1].view(all_samples[-1].shape[0], self.config.data.channels,
                                                   self.config.data.image_size,
@@ -330,9 +332,9 @@ class NCSNRunner():
 
                     image_grid = make_grid(sample, self.config.sampling.n_interpolations)
                     save_image(image_grid, os.path.join(self.args.image_folder,
-                                                        'image_grid_{}.png'.format(self.config.sampling.ckpt_id)))
+                                                        f'image_grid_{self.config.sampling.ckpt_id}.png'))
                     torch.save(sample, os.path.join(self.args.image_folder,
-                                                    'samples_{}.pth'.format(self.config.sampling.ckpt_id)))
+                                                    f'samples_{self.config.sampling.ckpt_id}.pth'))
 
             else:
                 if self.config.sampling.data_init:
@@ -364,8 +366,8 @@ class NCSNRunner():
                         sample = inverse_data_transform(self.config, sample)
 
                         image_grid = make_grid(sample, int(np.sqrt(self.config.sampling.batch_size)))
-                        save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(i)))
-                        torch.save(sample, os.path.join(self.args.image_folder, 'samples_{}.pth'.format(i)))
+                        save_image(image_grid, os.path.join(self.args.image_folder, f'image_grid_{i}.png'))
+                        torch.save(sample, os.path.join(self.args.image_folder, f'samples_{i}.pth'))
                 else:
                     sample = all_samples[-1].view(all_samples[-1].shape[0], self.config.data.channels,
                                                   self.config.data.image_size,
@@ -375,9 +377,9 @@ class NCSNRunner():
 
                     image_grid = make_grid(sample, int(np.sqrt(self.config.sampling.batch_size)))
                     save_image(image_grid, os.path.join(self.args.image_folder,
-                                                        'image_grid_{}.png'.format(self.config.sampling.ckpt_id)))
+                                                        f'image_grid_{self.config.sampling.ckpt_id}.png'))
                     torch.save(sample, os.path.join(self.args.image_folder,
-                                                    'samples_{}.pth'.format(self.config.sampling.ckpt_id)))
+                                                    f'samples_{self.config.sampling.ckpt_id}.pth'))
 
         else:
             total_n_samples = self.config.sampling.num_samples4fid
@@ -413,7 +415,7 @@ class NCSNRunner():
                 for img in samples:
                     img = inverse_data_transform(self.config, img)
 
-                    save_image(img, os.path.join(self.args.image_folder, 'image_{}.png'.format(img_id)))
+                    save_image(img, os.path.join(self.args.image_folder, f'image_{img_id}.png'))
                     img_id += 1
 
     def test(self):
@@ -427,8 +429,7 @@ class NCSNRunner():
                                      num_workers=self.config.data.num_workers, drop_last=True)
 
         verbose = False
-        for ckpt in tqdm.tqdm(range(self.config.test.begin_ckpt, self.config.test.end_ckpt + 1, 5000),
-                              desc="processing ckpt:"):
+        for ckpt in range(self.config.test.begin_ckpt, self.config.test.end_ckpt + 1, 5000):
             states = torch.load(os.path.join(self.args.log_path, f'checkpoint_{ckpt}.pth'),
                                 map_location=self.config.device)
 
@@ -446,19 +447,21 @@ class NCSNRunner():
             mean_loss = 0.
             mean_grad_norm = 0.
             average_grad_scale = 0.
-            for x, y in test_dataloader:
+            for x, _ in test_dataloader:
                 step += 1
 
                 x = x.to(self.config.device)
                 x = data_transform(self.config, x)
 
                 with torch.no_grad():
-                    # test_loss = anneal_dsm_score_estimation(score, x, sigmas, None,
-                    #                                         self.config.training.anneal_power)
-                    test_loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, None,
-                                                                    self.config.training.anneal_power)
+                    if self.config.beta == 2.0:
+                        test_loss = anneal_dsm_score_estimation(score, x, sigmas, None,
+                                                                self.config.training.anneal_power)
+                    else:
+                        test_loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, None,
+                                                                        self.config.training.anneal_power)
                     if verbose:
-                        logging.info("step: {}, test_loss: {}".format(step, test_loss.item()))
+                        logging.info(f"step: {step}, test_loss: {test_loss.item()}")
 
                     mean_loss += test_loss.item()
 
@@ -501,7 +504,7 @@ class NCSNRunner():
             score.eval()
 
             num_iters = self.config.fast_fid.num_samples // self.config.fast_fid.batch_size
-            output_path = os.path.join(self.args.image_folder, 'ckpt_{}'.format(ckpt))
+            output_path = os.path.join(self.args.image_folder, f'ckpt_{ckpt}')
             os.makedirs(output_path, exist_ok=True)
             for _ in tqdm(range(num_iters), desc=f'Checkpoint {ckpt}'):
                 init_samples = torch.rand(self.config.fast_fid.batch_size, self.config.data.channels,
@@ -523,7 +526,7 @@ class NCSNRunner():
 
                     sample = inverse_data_transform(self.config, sample)
 
-                    save_image(sample, os.path.join(output_path, 'sample_{}.png'.format(id)))
+                    save_image(sample, os.path.join(output_path, f'sample_{id}.png'))
 
             stat_path = get_fid_stats_path(self.args, self.config, download=True)
             fid = get_fid(stat_path, output_path)

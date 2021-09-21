@@ -1,6 +1,7 @@
 import torch
 
 from scipy.stats import gennorm
+from torch.distributions.gamma import Gamma
 
 
 def anneal_dsm_score_estimation(scorenet, samples, sigmas, labels=None, anneal_power=2., hook=None):
