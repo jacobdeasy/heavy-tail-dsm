@@ -117,7 +117,7 @@ class NCSNRunner():
                 X = X.to(self.config.device)
                 X = data_transform(self.config, X)
 
-                if self.config.beta == 2.0:
+                if self.args.beta == 2.0:
                     loss = anneal_dsm_score_estimation(score, X, sigmas, None,
                                                        self.config.training.anneal_power,
                                                        hook)
@@ -157,7 +157,7 @@ class NCSNRunner():
                     test_X = data_transform(self.config, test_X)
 
                     with torch.no_grad():
-                        if self.config.beta == 2.0:
+                        if self.args.beta == 2.0:
                             test_dsm_loss = anneal_dsm_score_estimation(test_score, test_X, sigmas, None,
                                                                         self.config.training.anneal_power,
                                                                         hook=test_hook)
@@ -454,7 +454,7 @@ class NCSNRunner():
                 x = data_transform(self.config, x)
 
                 with torch.no_grad():
-                    if self.config.beta == 2.0:
+                    if self.args.beta == 2.0:
                         test_loss = anneal_dsm_score_estimation(score, x, sigmas, None,
                                                                 self.config.training.anneal_power)
                     else:
