@@ -27,17 +27,17 @@ def get_optimizer(config: argparse.Namespace, parameters: List[Tensor]) -> None:
                            weight_decay=config.optim.weight_decay,
                            epochs=config.training.n_iters,
                            step_per_epoch=1,
-                           betas=(0.9,0.999,0.999), # restore default AdamW betas
-                           nus=(1.0,1.0), # disables QHMomentum
+                           betas=(0.9,0.999,0.999),  # restore default AdamW betas
+                           nus=(1.0,1.0),  # disables QHMomentum
                            k=0,  # disables lookahead
                            alpha=1.0, 
-                           IA=False, # enables Iterate Averaging
-                           rectify=False, # disables RAdam Recitification
-                           AdaMod=False, #disables AdaMod
-                           AdaMod_bias_correct=False, #disables AdaMod bias corretion (not used originally)
-                           use_demon=True, #enables Decaying Momentum (DEMON)
-                           use_gc=False, #disables gradient centralization
-                           amsgrad=False # disables amsgrad
+                           IA=False,  # enables Iterate Averaging
+                           rectify=False,  # disables RAdam Recitification
+                           AdaMod=False,  # disables AdaMod
+                           AdaMod_bias_correct=False,  # disables AdaMod bias corretion (not used originally)
+                           use_demon=True,  # enables Decaying Momentum (DEMON)
+                           use_gc=False,  # disables gradient centralization
+                           amsgrad=False  # disables amsgrad
                            )
     else:
         raise NotImplementedError(f'Optimizer {config.optim.optimizer} not understood.')

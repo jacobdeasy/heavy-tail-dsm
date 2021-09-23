@@ -31,7 +31,8 @@ def get_normalization(config, conditional=True):
         elif norm is None:
             return None
         else:
-            raise NotImplementedError("{} does not exist!".format(norm))
+            raise NotImplementedError(f"{norm} does not exist!")
+
 
 class ConditionalBatchNorm2d(nn.Module):
     def __init__(self, num_features, num_classes, bias=True):
@@ -80,6 +81,7 @@ class ConditionalInstanceNorm2d(nn.Module):
         else:
             gamma = self.embed(y)
             out = gamma.view(-1, self.num_features, 1, 1) * h
+
         return out
 
 
@@ -205,4 +207,5 @@ class ConditionalInstanceNorm2dPlus(nn.Module):
             gamma, alpha = self.embed(y).chunk(2, dim=-1)
             h = h + means[..., None, None] * alpha[..., None, None]
             out = gamma.view(-1, self.num_features, 1, 1) * h
+
         return out
