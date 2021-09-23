@@ -1,14 +1,15 @@
-import torch.nn as nn
+import argparse
 import torch
-from torch.nn.parameter import Parameter
+import torch.nn as nn
 import torch.nn.functional as F
-from .normalization import *
+
 from functools import partial
-import math
-import torch.nn.init as init
+from typing import Callable, Optional
+
+from .normalization import *
 
 
-def get_act(config):
+def get_act(config: argparse.Namespace) -> Callable:
     if config.model.nonlinearity.lower() == 'elu':
         return nn.ELU()
     elif config.model.nonlinearity.lower() == 'relu':
@@ -22,8 +23,10 @@ def get_act(config):
     else:
         raise NotImplementedError('activation function does not exist!')
 
-def spectral_norm(layer, n_iters=1):
+
+def spectral_norm(layer: nn.Module, n_iters: Optional[int] = 1) -> nn.Module:
     return torch.nn.utils.spectral_norm(layer, n_power_iterations=n_iters)
+
 
 def conv1x1(in_planes, out_planes, stride=1, bias=True, spec_norm=False):
     "1x1 convolution"
@@ -58,6 +61,7 @@ def dilated_conv3x3(in_planes, out_planes, dilation, bias=True, spec_norm=False)
         conv = spectral_norm(conv)
 
     return conv
+
 
 class CRPBlock(nn.Module):
     def __init__(self, features, n_stages, act=nn.ReLU(), maxpool=True, spec_norm=False):
@@ -249,7 +253,6 @@ class RefineBlock(nn.Module):
         return h
 
 
-
 class CondRefineBlock(nn.Module):
     def __init__(self, in_planes, features, num_classes, normalizer, act=nn.ReLU(), start=False, end=False, spec_norm=False):
         super().__init__()
@@ -311,6 +314,7 @@ class ConvMeanPool(nn.Module):
         output = sum([output[:, :, ::2, ::2], output[:, :, 1::2, ::2],
                       output[:, :, ::2, 1::2], output[:, :, 1::2, 1::2]]) / 4.
         return output
+
 
 class MeanPoolConv(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size=3, biases=True, spec_norm=False):

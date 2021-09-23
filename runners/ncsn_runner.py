@@ -8,23 +8,26 @@ from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
 
+from datasets import data_transform, get_dataset, inverse_data_transform
 from losses import get_optimizer
 from losses.dsm import (anneal_dsm_score_estimation,
                         anneal_dsm_score_estimation_gennorm)
-from models.ncsnv2 import NCSNv2Deeper, NCSNv2, NCSNv2Deepest
-from models.ncsn import NCSN, NCSNdeeper
-from datasets import data_transform, get_dataset, inverse_data_transform
 from models import (anneal_Langevin_dynamics,
                     anneal_Langevin_dynamics_inpainting,
-                    anneal_Langevin_dynamics_interpolation)
-from models import get_sigmas
+                    anneal_Langevin_dynamics_interpolation,
+                    get_sigmas)
+from models.cond_refinenet_dilated import CondRefineNetDilated
 from models.ema import EMAHelper
+from models.ncsnv2 import NCSNv2Deeper, NCSNv2, NCSNv2Deepest
+
 
 __all__ = ['NCSNRunner']
 
 
 def get_model(config: argparse.Namespace) -> None:
-    if config.data.dataset == 'CIFAR10' or config.data.dataset == 'CELEBA':
+    if config.data.dataset == 'MNIST' or config.data.dataset == 'FashionMNIST':
+        return CondRefineNetDilated(config).to(config.device)
+    elif config.data.dataset == 'CIFAR10' or config.data.dataset == 'CELEBA':
         return NCSNv2(config).to(config.device)
     elif config.data.dataset == 'LSUN':
         return NCSNv2Deeper(config).to(config.device)
@@ -546,17 +549,17 @@ class NCSNRunner():
         import pickle
 
         num_ensembles = 5
-        scores = [NCSN(self.config).to(self.config.device) for _ in range(num_ensembles)]
+        scores = [get_model(self.config) for _ in range(num_ensembles)]
         scores = [torch.nn.DataParallel(score) for score in scores]
 
         sigmas_th = get_sigmas(self.config)
         sigmas = sigmas_th.cpu().numpy()
 
         fids = {}
-        for ckpt in range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1, 5000):
-            begin_ckpt = max(self.config.fast_fid.begin_ckpt, ckpt - (num_ensembles - 1) * 5000)
+        for ckpt in range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1, self.config.fast_fid.ckpt_interval):
+            begin_ckpt = max(self.config.fast_fid.begin_ckpt, ckpt - (num_ensembles - 1) * self.config.fast_fid.ckpt_interval)
             index = 0
-            for i in range(begin_ckpt, ckpt + 5000, 5000):
+            for i in range(begin_ckpt, ckpt + self.config.fast_fid.ckpt_interval, self.config.fast_fid.ckpt_interval):
                 states = torch.load(os.path.join(self.args.log_path, f'checkpoint_{i}.pth'),
                                     map_location=self.config.device)
                 scores[index].load_state_dict(states[0])
@@ -564,7 +567,7 @@ class NCSNRunner():
                 index += 1
 
             def scorenet(x, labels):
-                num_ckpts = (ckpt - begin_ckpt) // 5000 + 1
+                num_ckpts = (ckpt - begin_ckpt) // self.config.fast_fid.ckpt_interval + 1
                 return sum([scores[i](x, labels) for i in range(num_ckpts)]) / num_ckpts
 
             num_iters = self.config.fast_fid.num_samples // self.config.fast_fid.batch_size

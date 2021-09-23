@@ -1,84 +1,81 @@
+import argparse
 import torch.nn as nn
+import torch.nn.functional as F
+
+from torch import Tensor
 
 from .layers import *
-from .normalization import get_normalization
+from .normalization import *
 
 
-class NCSN(nn.Module):
-    def __init__(self, config):
+class CondRefineNetDilated(nn.Module):
+    def __init__(self, config: argparse.Namespace) -> None:
         super().__init__()
-        self.logit_transform = config.data.logit_transform
-        self.rescaled = config.data.rescaled
-        self.norm = get_normalization(config, conditional=True)
-        self.ngf = ngf = config.model.ngf
-        self.num_classes = num_classes = config.model.num_classes
-        self.act = act = get_act(config)
         self.config = config
 
-        self.begin_conv = nn.Conv2d(config.data.channels, ngf, 3, stride=1, padding=1)
-        self.spec_norm = spec_norm = config.model.spec_norm
+        self.logit_transform = config.data.logit_transform
+        self.norm = get_normalization(config)
+        self.ngf = ngf = config.model.ngf
+        self.num_classes = config.model.num_classes
+        self.act = act = get_act(config)
 
+        self.begin_conv = nn.Conv2d(config.data.channels, ngf, 3, stride=1, padding=1)
         self.normalizer = self.norm(ngf, self.num_classes)
+
         self.end_conv = nn.Conv2d(ngf, config.data.channels, 3, stride=1, padding=1)
 
         self.res1 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm),
+                                     normalization=self.norm),
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm)]
+                                     normalization=self.norm)]
         )
 
         self.res2 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, spec_norm=spec_norm),
+                                     normalization=self.norm),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm)]
+                                     normalization=self.norm)]
         )
 
         self.res3 = nn.ModuleList([
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, dilation=2, spec_norm=spec_norm),
+                                     normalization=self.norm, dilation=2),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, dilation=2, spec_norm=spec_norm)]
+                                     normalization=self.norm, dilation=2)]
         )
 
         if config.data.image_size == 28:
             self.res4 = nn.ModuleList([
                 ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                         normalization=self.norm, adjust_padding=True, dilation=4, spec_norm=spec_norm),
+                                         normalization=self.norm, adjust_padding=True, dilation=4),
                 ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                         normalization=self.norm, dilation=4, spec_norm=spec_norm)]
+                                         normalization=self.norm, dilation=4)]
             )
         else:
             self.res4 = nn.ModuleList([
                 ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                         normalization=self.norm, adjust_padding=False, dilation=4,
-                                         spec_norm=spec_norm),
+                                         normalization=self.norm, adjust_padding=False, dilation=4),
                 ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                         normalization=self.norm, dilation=4, spec_norm=spec_norm)]
+                                         normalization=self.norm, dilation=4)]
             )
 
-        self.refine1 = CondRefineBlock([2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act, start=True,
-                                       spec_norm=spec_norm)
-        self.refine2 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act,
-                                       spec_norm=spec_norm)
-        self.refine3 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, self.num_classes, self.norm, act=act,
-                                       spec_norm=spec_norm)
-        self.refine4 = CondRefineBlock([self.ngf, self.ngf], self.ngf, self.num_classes, self.norm, act=act, end=True,
-                                       spec_norm=spec_norm)
+        self.refine1 = CondRefineBlock([2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act, start=True)
+        self.refine2 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act)
+        self.refine3 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, self.num_classes, self.norm, act=act)
+        self.refine4 = CondRefineBlock([self.ngf, self.ngf], self.ngf, self.num_classes, self.norm, act=act, end=True)
 
-    def _compute_cond_module(self, module, x, y):
+    def _compute_cond_module(self, module: nn.Module, x: Tensor, y: Tensor) -> Tensor:
         for m in module:
             x = m(x, y)
+
         return x
 
-    def forward(self, x, y):
-        if not self.logit_transform and not self.rescaled:
-            h = 2 * x - 1.
-        else:
-            h = x
+    def forward(self, x: Tensor, y: Tensor) -> Tensor:
+        if not self.logit_transform:
+            x = 2 * x - 1.
 
-        output = self.begin_conv(h)
+        output = self.begin_conv(x)
 
         layer1 = self._compute_cond_module(self.res1, output, y)
         layer2 = self._compute_cond_module(self.res2, layer1, y)
@@ -97,76 +94,74 @@ class NCSN(nn.Module):
         return output
 
 
-class NCSNdeeper(nn.Module):
-    def __init__(self, config):
+class CondRefineNetDeeperDilated(nn.Module):
+    def __init__(self, config: argparse.Namespace) -> None:
         super().__init__()
+        self.config = config
+
         self.logit_transform = config.data.logit_transform
-        self.rescaled = config.data.rescaled
-        self.norm = get_normalization(config, conditional=True)
+        self.norm = get_normalization(config)
         self.ngf = ngf = config.model.ngf
         self.num_classes = config.model.num_classes
         self.act = act = get_act(config)
-        self.config = config
 
         self.begin_conv = nn.Conv2d(config.data.channels, ngf, 3, stride=1, padding=1)
         self.normalizer = self.norm(ngf, self.num_classes)
 
         self.end_conv = nn.Conv2d(ngf, config.data.channels, 3, stride=1, padding=1)
-        spec_norm = config.model.spec_norm
 
         self.res1 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm),
+                                     normalization=self.norm),
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm)]
+                                     normalization=self.norm)]
         )
 
         self.res2 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, spec_norm=spec_norm),
+                                     normalization=self.norm),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm)]
+                                     normalization=self.norm)]
         )
 
         self.res3 = nn.ModuleList([
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, spec_norm=spec_norm),
+                                     normalization=self.norm),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, spec_norm=spec_norm)]
+                                     normalization=self.norm)]
         )
 
         self.res4 = nn.ModuleList([
             ConditionalResidualBlock(2 * self.ngf, 4 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, dilation=2, spec_norm=spec_norm),
+                                     normalization=self.norm, dilation=2),
             ConditionalResidualBlock(4 * self.ngf, 4 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, dilation=2, spec_norm=spec_norm)]
+                                     normalization=self.norm, dilation=2)]
         )
 
         self.res5 = nn.ModuleList([
             ConditionalResidualBlock(4 * self.ngf, 4 * self.ngf, self.num_classes, resample='down', act=act,
-                                     normalization=self.norm, dilation=4, spec_norm=spec_norm),
+                                     normalization=self.norm, dilation=4),
             ConditionalResidualBlock(4 * self.ngf, 4 * self.ngf, self.num_classes, resample=None, act=act,
-                                     normalization=self.norm, dilation=4, spec_norm=spec_norm)]
+                                     normalization=self.norm, dilation=4)]
         )
 
-        self.refine1 = CondRefineBlock([4 * self.ngf], 4 * self.ngf, self.num_classes, self.norm, act=act, start=True, spec_norm=spec_norm)
-        self.refine2 = CondRefineBlock([4 * self.ngf, 4 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act, spec_norm=spec_norm)
-        self.refine3 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act, spec_norm=spec_norm)
-        self.refine4 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, self.num_classes, self.norm, act=act, spec_norm=spec_norm)
-        self.refine5 = CondRefineBlock([self.ngf, self.ngf], self.ngf, self.num_classes, self.norm, act=act, end=True, spec_norm=spec_norm)
+        self.refine1 = CondRefineBlock([4 * self.ngf], 4 * self.ngf, self.num_classes, self.norm, act=act, start=True)
+        self.refine2 = CondRefineBlock([4 * self.ngf, 4 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act)
+        self.refine3 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], 2 * self.ngf, self.num_classes, self.norm, act=act)
+        self.refine4 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, self.num_classes, self.norm, act=act)
+        self.refine5 = CondRefineBlock([self.ngf, self.ngf], self.ngf, self.num_classes, self.norm, act=act, end=True)
 
-    def _compute_cond_module(self, module, x, y):
+    def _compute_cond_module(self, module: nn.Module, x: Tensor, y: Tensor) -> Tensor:
         for m in module:
             x = m(x, y)
+
         return x
 
-    def forward(self, x, y):
-        if not self.logit_transform and not self.rescaled:
-            h = 2 * x - 1.
-        else:
-            h = x
+    def forward(self, x: Tensor, y: Tensor) -> Tensor:
+        if not self.logit_transform:
+            x = 2 * x - 1.
 
-        output = self.begin_conv(h)
+        output = self.begin_conv(x)
 
         layer1 = self._compute_cond_module(self.res1, output, y)
         layer2 = self._compute_cond_module(self.res2, layer1, y)
