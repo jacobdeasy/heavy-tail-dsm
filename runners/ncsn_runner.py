@@ -1,3 +1,4 @@
+import argparse
 import logging
 import numpy as np
 import os
@@ -8,7 +9,8 @@ from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
 
 from losses import get_optimizer
-from losses.dsm import anneal_dsm_score_estimation, anneal_dsm_score_estimation_gennorm
+from losses.dsm import (anneal_dsm_score_estimation,
+                        anneal_dsm_score_estimation_gennorm)
 from models.ncsnv2 import NCSNv2Deeper, NCSNv2, NCSNv2Deepest
 from models.ncsn import NCSN, NCSNdeeper
 from datasets import data_transform, get_dataset, inverse_data_transform
@@ -21,23 +23,23 @@ from models.ema import EMAHelper
 __all__ = ['NCSNRunner']
 
 
-def get_model(config):
+def get_model(config: argparse.Namespace) -> None:
     if config.data.dataset == 'CIFAR10' or config.data.dataset == 'CELEBA':
         return NCSNv2(config).to(config.device)
-    elif config.data.dataset == "FFHQ":
-        return NCSNv2Deepest(config).to(config.device)
     elif config.data.dataset == 'LSUN':
         return NCSNv2Deeper(config).to(config.device)
+    elif config.data.dataset == "FFHQ":
+        return NCSNv2Deepest(config).to(config.device)
 
 
 class NCSNRunner():
-    def __init__(self, args, config):
+    def __init__(self, args: argparse.Namespace, config: argparse.Namespace) -> None:
         self.args = args
         self.config = config
         args.log_sample_path = os.path.join(args.log_path, 'samples')
         os.makedirs(args.log_sample_path, exist_ok=True)
 
-    def train(self):
+    def train(self) -> None:
         dataset, test_dataset = get_dataset(self.args, self.config)
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True,
                                 num_workers=self.config.data.num_workers)
@@ -122,8 +124,8 @@ class NCSNRunner():
                                                        self.config.training.anneal_power,
                                                        hook)
                 else:
-                    loss = anneal_dsm_score_estimation_gennorm(score, X, sigmas, None,
-                                                               self.config.training.anneal_power,
+                    loss = anneal_dsm_score_estimation_gennorm(score, X, sigmas, self.args.beta,
+                                                               None, self.config.training.anneal_power,
                                                                hook)
                 tb_logger.add_scalar('loss', loss, global_step=step)
                 tb_hook()
@@ -162,9 +164,9 @@ class NCSNRunner():
                                                                         self.config.training.anneal_power,
                                                                         hook=test_hook)
                         else:
-                            test_dsm_loss = anneal_dsm_score_estimation_gennorm(test_score, test_X, sigmas, None,
-                                                                                self.config.training.anneal_power,
-                                                                                hook=test_hook)
+                            test_dsm_loss = loss = anneal_dsm_score_estimation_gennorm(score, X, sigmas, self.args.beta,
+                                                                                       None, self.config.training.anneal_power,
+                                                                                       hook)
                         tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                         test_tb_hook()
                         logging.info(f"step: {step}, test_loss: {test_dsm_loss.item()}")
@@ -217,9 +219,10 @@ class NCSNRunner():
                         del test_score
                         del all_samples
 
-    def sample(self):
+    def sample(self) -> None:
         if self.config.sampling.ckpt_id is None:
-            states = torch.load(os.path.join(self.args.log_path, 'checkpoint.pth'), map_location=self.config.device)
+            states = torch.load(os.path.join(self.args.log_path, 'checkpoint.pth'),
+                                map_location=self.config.device)
         else:
             states = torch.load(os.path.join(self.args.log_path, f'checkpoint_{self.config.sampling.ckpt_id}.pth'),
                                 map_location=self.config.device)
@@ -418,7 +421,7 @@ class NCSNRunner():
                     save_image(img, os.path.join(self.args.image_folder, f'image_{img_id}.png'))
                     img_id += 1
 
-    def test(self):
+    def test(self) -> None:
         score = get_model(self.config)
         score = torch.nn.DataParallel(score)
 
@@ -458,8 +461,9 @@ class NCSNRunner():
                         test_loss = anneal_dsm_score_estimation(score, x, sigmas, None,
                                                                 self.config.training.anneal_power)
                     else:
-                        test_loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, None,
-                                                                        self.config.training.anneal_power)
+                        loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, self.args.beta,
+                                                                   None, self.config.training.anneal_power,
+                                                                   None)
                     if verbose:
                         logging.info(f"step: {step}, test_loss: {test_loss.item()}")
 
@@ -471,7 +475,7 @@ class NCSNRunner():
 
             logging.info(f"ckpt: {ckpt}, average test loss: {mean_loss}")
 
-    def fast_fid(self):
+    def fast_fid(self) -> None:
         ### Test the fids of ensembled checkpoints.
         ### Shouldn't be used for models with ema
         if self.config.fast_fid.ensemble:
@@ -482,6 +486,7 @@ class NCSNRunner():
 
         from evaluation.fid_score import get_fid, get_fid_stats_path
         import pickle
+
         score = get_model(self.config)
         score = torch.nn.DataParallel(score)
 
@@ -536,7 +541,7 @@ class NCSNRunner():
         with open(os.path.join(self.args.image_folder, 'fids.pickle'), 'wb') as handle:
             pickle.dump(fids, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def fast_ensemble_fid(self):
+    def fast_ensemble_fid(self) -> None:
         from evaluation.fid_score import get_fid, get_fid_stats_path
         import pickle
 

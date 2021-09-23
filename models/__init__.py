@@ -1,8 +1,13 @@
-import torch
+import argparse
+# import matplotlib.pyplot as plt
 import numpy as np
+import torch
+
+from torch import Tensor
+from typing import List, Optional
 
 
-def get_sigmas(config):
+def get_sigmas(config: argparse.Namespace) -> Tensor:
     if config.model.sigma_dist == 'geometric':
         sigmas = torch.tensor(
             np.exp(np.linspace(np.log(config.model.sigma_begin), np.log(config.model.sigma_end),
@@ -19,11 +24,19 @@ def get_sigmas(config):
 
 
 @torch.no_grad()
-def anneal_Langevin_dynamics(x_mod, scorenet, sigmas, n_steps_each=200, step_lr=0.000008,
-                             final_only=False, verbose=False, denoise=True):
+def anneal_Langevin_dynamics(x_mod: Tensor,
+                             scorenet: torch.nn.Module,
+                             sigmas: Tensor,
+                             n_steps_each: Optional[int] = 200,
+                             step_lr: Optional[float] = 0.000008,
+                             final_only: Optional[bool] = False,
+                             verbose: Optional[bool] = False,
+                             denoise: Optional[bool] = True
+                             ) -> List[Tensor]:
     images = []
 
     with torch.no_grad():
+        # grad_norms = []
         for c, sigma in enumerate(sigmas):
             labels = torch.ones(x_mod.shape[0], device=x_mod.device) * c
             labels = labels.long()
@@ -33,6 +46,7 @@ def anneal_Langevin_dynamics(x_mod, scorenet, sigmas, n_steps_each=200, step_lr=
 
                 noise = torch.randn_like(x_mod)
                 grad_norm = torch.norm(grad.view(grad.shape[0], -1), dim=-1).mean()
+                # grad_norms.append(grad_norm)
                 noise_norm = torch.norm(noise.view(noise.shape[0], -1), dim=-1).mean()
                 x_mod = x_mod + step_size * grad + noise * np.sqrt(step_size * 2)
 
@@ -45,6 +59,8 @@ def anneal_Langevin_dynamics(x_mod, scorenet, sigmas, n_steps_each=200, step_lr=
                 if verbose:
                     print("level: {:.4f}, step_size: {:.4f}, grad_norm: {:.4f}, image_norm: {:.4f}, snr: {:.4f}, grad_mean_norm: {:.4f}".format(
                         c, step_size, grad_norm.item(), image_norm.item(), snr.item(), grad_mean_norm.item()))
+        # plt.plot(grad_norms)
+        # plt.show()
 
         if denoise:
             last_noise = (len(sigmas) - 1) * torch.ones(x_mod.shape[0], device=x_mod.device)
@@ -59,8 +75,14 @@ def anneal_Langevin_dynamics(x_mod, scorenet, sigmas, n_steps_each=200, step_lr=
 
 
 @torch.no_grad()
-def anneal_Langevin_dynamics_inpainting(x_mod, refer_image, scorenet, sigmas, image_size,
-                                        n_steps_each=100, step_lr=0.000008):
+def anneal_Langevin_dynamics_inpainting(x_mod: Tensor,
+                                        refer_image: Tensor,
+                                        scorenet: torch.nn.Module,
+                                        sigmas: Tensor,
+                                        image_size: int,
+                                        n_steps_each: Optional[int] = 100,
+                                        step_lr: Optional[float] = 0.000008
+                                        ) -> List[Tensor]:
     """
     Currently only good for 32x32 images. Assuming the right half is missing.
     """
@@ -85,15 +107,22 @@ def anneal_Langevin_dynamics_inpainting(x_mod, refer_image, scorenet, sigmas, im
                 noise = torch.randn_like(x_mod) * np.sqrt(step_size * 2)
                 grad = scorenet(x_mod, labels)
                 x_mod = x_mod + step_size * grad + noise
-                print("class: {}, step_size: {}, mean {}, max {}".format(c, step_size, grad.abs().mean(),
-                                                                         grad.abs().max()))
+                print("class: {:.4f}, step_size: {:.4f}, mean {:.4f}, max {:.4f}".format(
+                    c, step_size, grad.abs().mean(), grad.abs().max()))
 
         return images
 
 
 @torch.no_grad()
-def anneal_Langevin_dynamics_interpolation(x_mod, scorenet, sigmas, n_interpolations, n_steps_each=200, step_lr=0.000008,
-                             final_only=False, verbose=False):
+def anneal_Langevin_dynamics_interpolation(x_mod: Tensor,
+                                           scorenet: torch.nn.Module,
+                                           sigmas: Tensor,
+                                           n_interpolations: int,
+                                           n_steps_each: Optional[int] = 200,
+                                           step_lr: Optional[float] = 0.000008,
+                                           final_only: Optional[bool] = False,
+                                           verbose: Optional[bool] = False
+                                           ) -> List[Tensor]:
     images = []
 
     n_rows = x_mod.shape[0]
@@ -130,7 +159,7 @@ def anneal_Langevin_dynamics_interpolation(x_mod, scorenet, sigmas, n_interpolat
                 images.append(x_mod.to('cpu'))
             if verbose:
                 print(
-                    "level: {}, step_size: {}, image_norm: {}, grad_norm: {}, snr: {}".format(
+                    "level: {:.4f}, step_size: {:.4f}, image_norm: {:.4f}, grad_norm: {:.4f}, snr: {:.4f}".format(
                         c, step_size, image_norm.item(), grad_norm.item(), snr.item()))
 
 

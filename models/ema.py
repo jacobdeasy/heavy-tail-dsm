@@ -1,5 +1,5 @@
-import copy
 import torch.nn as nn
+
 
 class EMAHelper(object):
     def __init__(self, mu=0.999):

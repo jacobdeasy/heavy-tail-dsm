@@ -3,7 +3,7 @@ training:
   n_epochs: 500000
   n_iters: 10001
   snapshot_freq: 1000
-  snapshot_sampling: true
+  snapshot_sampling: false
   anneal_power: 2
   log_all_sigmas: false
 
@@ -12,7 +12,7 @@ sampling:
   data_init: false
   step_lr: 0.0000062
   n_steps_each: 5
-  ckpt_id: 5000
+  ckpt_id: 10000
   final_only: true
   fid: false
   denoise: true
@@ -26,7 +26,7 @@ fast_fid:
   num_samples: 1000
   step_lr: 0.0000062
   n_steps_each: 5
-  begin_ckpt: 9000
+  begin_ckpt: 1000
   ckpt_interval: 1000
   end_ckpt: 10000
   verbose: false
@@ -51,7 +51,7 @@ data:
 model:
   sigma_begin: 50
   num_classes: 232
-  ema: false
+  ema: true
   ema_rate: 0.999
   spec_norm: false
   sigma_dist: geometric
@@ -62,8 +62,8 @@ model:
 
 optim:
   weight_decay: 0.000
-  optimizer: "Adam"
+  optimizer: "DemonAdam"
   lr: 0.0001
   beta1: 0.9
-  amsgrad: false
+  amsgrad: true
   eps: 0.00000001

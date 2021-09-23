@@ -1,18 +1,19 @@
 import argparse
-import traceback
-import time
-import shutil
-import logging
-import yaml
-import sys
-import os
-import torch
-import numpy as np
-import torch.utils.tensorboard as tb
 import copy
-from runners import *
-
+import logging
+from typing import Dict
+import numpy as np
 import os
+import shutil
+import sys
+import torch
+import torch.utils.tensorboard as tb
+import traceback
+import yaml
+
+from typing import Dict
+
+from runners import *
 
 
 def parse_args_and_config():
@@ -21,8 +22,7 @@ def parse_args_and_config():
     parser.add_argument('--config', type=str, required=True,  help='Path to the config file')
     parser.add_argument('--seed', type=int, default=1234, help='Random seed')
     parser.add_argument('--exp', type=str, default='exp', help='Path for saving running related data.')
-    parser.add_argument('--doc', type=str, required=True, help='A string for documentation purpose. '
-                                                               'Will be the name of the log folder.')
+    parser.add_argument('--doc', type=str, required=True, help='A string for documentation purpose. ')
     parser.add_argument('--comment', type=str, default='', help='A string for experiment comment')
     parser.add_argument('--verbose', type=str, default='info', help='Verbose level: info | debug | warning | critical')
     parser.add_argument('--test', action='store_true', help='Whether to test the model')
@@ -74,7 +74,7 @@ def parse_args_and_config():
         # setup logger
         level = getattr(logging, args.verbose.upper(), None)
         if not isinstance(level, int):
-            raise ValueError('level {} not supported'.format(args.verbose))
+            raise ValueError(f'Level {args.verbose} not supported')
 
         handler1 = logging.StreamHandler()
         handler2 = logging.FileHandler(os.path.join(args.log_path, 'stdout.txt'))
@@ -89,7 +89,7 @@ def parse_args_and_config():
     else:
         level = getattr(logging, args.verbose.upper(), None)
         if not isinstance(level, int):
-            raise ValueError('level {} not supported'.format(args.verbose))
+            raise ValueError(f'Level {args.verbose} not supported')
 
         handler1 = logging.StreamHandler()
         formatter = logging.Formatter('%(levelname)s - %(filename)s - %(asctime)s - %(message)s')
@@ -141,7 +141,7 @@ def parse_args_and_config():
 
     # add device
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    logging.info("Using device: {}".format(device))
+    logging.info(f"Using device: {device}")
     new_config.device = device
 
     # set random seed
@@ -155,7 +155,7 @@ def parse_args_and_config():
     return args, new_config
 
 
-def dict2namespace(config):
+def dict2namespace(config: Dict) -> argparse.Namespace:
     namespace = argparse.Namespace()
     for key, value in config.items():
         if isinstance(value, dict):
@@ -163,14 +163,15 @@ def dict2namespace(config):
         else:
             new_value = value
         setattr(namespace, key, new_value)
+
     return namespace
 
 
 def main():
     args, config = parse_args_and_config()
-    logging.info("Writing log file to {}".format(args.log_path))
-    logging.info("Exp instance id = {}".format(os.getpid()))
-    logging.info("Exp comment = {}".format(args.comment))
+    logging.info(f"Writing log file to {args.log_path}")
+    logging.info(f"Exp instance id = {os.getpid()}")
+    logging.info(f"Exp comment = {args.comment}")
     logging.info("Config =")
     print(">" * 80)
     config_dict = copy.copy(vars(config))

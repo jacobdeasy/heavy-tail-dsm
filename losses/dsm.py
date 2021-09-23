@@ -1,11 +1,17 @@
 import numpy as np
 import torch
 
-from scipy.stats import gennorm
-from torch.distributions.gamma import Gamma
+from torch import Tensor
+from typing import Any, Callable, Optional
 
 
-def anneal_dsm_score_estimation(scorenet, samples, sigmas, labels=None, anneal_power=2., hook=None):
+def anneal_dsm_score_estimation(scorenet: torch.nn.Module,
+                                samples: Tensor,
+                                sigmas: Tensor,
+                                labels: Optional[Any] = None,
+                                anneal_power: Optional[float] = 2.0,
+                                hook: Optional[Callable] = None
+                                ) -> Tensor:
     if labels is None:
         labels = torch.randint(0, len(sigmas), (samples.shape[0],), device=samples.device)
     used_sigmas = sigmas[labels].view(samples.shape[0], *([1] * len(samples.shape[1:])))
@@ -21,7 +27,14 @@ def anneal_dsm_score_estimation(scorenet, samples, sigmas, labels=None, anneal_p
     return loss.mean(dim=0)
 
 
-def anneal_dsm_score_estimation_gennorm(scorenet, samples, sigmas, beta, labels=None, anneal_power=2., hook=None):
+def anneal_dsm_score_estimation_gennorm(scorenet: torch.nn.Module,
+                                        samples: Tensor,
+                                        sigmas: Tensor,
+                                        beta: float,
+                                        labels: Optional[Any] = None,
+                                        anneal_power: Optional[float] = 2.0,
+                                        hook: Optional[Callable] = None
+                                        ) -> Tensor:
     if labels is None:
         labels = torch.randint(0, len(sigmas), (samples.shape[0],), device=samples.device)
     used_sigmas = sigmas[labels].view(samples.shape[0], *([1] * len(samples.shape[1:])))
@@ -42,5 +55,9 @@ def anneal_dsm_score_estimation_gennorm(scorenet, samples, sigmas, beta, labels=
     return loss.mean(dim=0)
 
 
-def _gennorm_score(x, mu=0.0, alpha=1.0, beta=2.0):
+def _gennorm_score(x: Tensor,
+                   mu: Optional[float] = 0.0,
+                   alpha: Optional[float] = 1.0,
+                   beta: Optional[float] = 2.0
+                   ) -> Tensor:
     return - (beta / alpha ** beta) * torch.sign(x - mu) * torch.abs(x - mu) ** (beta - 1)
