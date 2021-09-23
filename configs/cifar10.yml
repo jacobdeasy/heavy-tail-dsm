@@ -8,13 +8,13 @@ training:
   log_all_sigmas: false
 
 sampling:
-  batch_size: 100
+  batch_size: 25
   data_init: false
   step_lr: 0.0000062
   n_steps_each: 5
   ckpt_id: 10000
   final_only: true
-  fid: false
+  fid: true
   denoise: true
   num_samples4fid: 10000
   inpainting: false

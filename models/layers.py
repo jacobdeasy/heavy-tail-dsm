@@ -17,6 +17,7 @@ def get_act(config: argparse.Namespace) -> Callable:
     elif config.model.nonlinearity.lower() == 'lrelu':
         return nn.LeakyReLU(negative_slope=0.2)
     elif config.model.nonlinearity.lower() == 'swish':
+        @torch.jit.script
         def swish(x):
             return x * torch.sigmoid(x)
         return swish
@@ -29,7 +30,6 @@ def spectral_norm(layer: nn.Module, n_iters: Optional[int] = 1) -> nn.Module:
 
 
 def conv1x1(in_planes, out_planes, stride=1, bias=True, spec_norm=False):
-    "1x1 convolution"
     conv = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
                      padding=0, bias=bias)
     if spec_norm:
@@ -38,7 +38,6 @@ def conv1x1(in_planes, out_planes, stride=1, bias=True, spec_norm=False):
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=True, spec_norm=False):
-    "3x3 convolution with padding"
     conv = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=bias)
     if spec_norm:
