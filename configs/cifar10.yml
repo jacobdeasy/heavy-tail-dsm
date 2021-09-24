@@ -1,8 +1,8 @@
 training:
   batch_size: 64
   n_epochs: 500000
-  n_iters: 50001
-  snapshot_freq: 5000
+  n_iters: 10001
+  snapshot_freq: 1000
   snapshot_sampling: false
   anneal_power: 2
   log_all_sigmas: false
@@ -26,9 +26,15 @@ fast_fid:
   num_samples: 1000
   step_lr: 0.0000062
   n_steps_each: 5
+<<<<<<< HEAD
   begin_ckpt: 50000
   ckpt_interval: 5000
   end_ckpt: 50000
+=======
+  begin_ckpt: 9000
+  ckpt_interval: 1000
+  end_ckpt: 9000
+>>>>>>> 2ff1a8d74b5bf185f7cf5d44363a667da00d8dc7
   verbose: false
   ensemble: false
 

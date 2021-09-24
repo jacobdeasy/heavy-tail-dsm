@@ -1,4 +1,5 @@
 import argparse
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -71,6 +72,7 @@ class CondRefineNetDilated(nn.Module):
 
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
         if not self.logit_transform:
             x = 2 * x - 1.
@@ -157,6 +159,7 @@ class CondRefineNetDeeperDilated(nn.Module):
 
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
         if not self.logit_transform:
             x = 2 * x - 1.

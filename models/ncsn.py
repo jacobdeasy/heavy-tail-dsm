@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from .layers import *
@@ -72,6 +73,7 @@ class NCSN(nn.Module):
             x = m(x, y)
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
@@ -160,6 +162,7 @@ class NCSNdeeper(nn.Module):
             x = m(x, y)
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
