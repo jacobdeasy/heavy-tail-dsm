@@ -55,7 +55,6 @@ def anneal_dsm_score_estimation_gennorm(scorenet: torch.nn.Module,
     return loss.mean(dim=0)
 
 
-@torch.jit.script
 def _gennorm_score(x: Tensor,
                    mu: float = 0.0,
                    alpha: float = 1.0,

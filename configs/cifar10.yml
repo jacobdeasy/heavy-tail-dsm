@@ -8,33 +8,27 @@ training:
   log_all_sigmas: false
 
 sampling:
-  batch_size: 25
+  batch_size: 512
   data_init: false
   step_lr: 0.0000062
   n_steps_each: 5
-  ckpt_id: 10000
+  ckpt_id: 50000
   final_only: true
   fid: true
   denoise: true
-  num_samples4fid: 10000
+  num_samples4fid: 5000
   inpainting: false
   interpolation: false
   n_interpolations: 15
 
 fast_fid:
-  batch_size: 128
+  batch_size: 1024
   num_samples: 1000
   step_lr: 0.0000062
   n_steps_each: 5
-<<<<<<< HEAD
-  begin_ckpt: 1000
+  begin_ckpt: 50000
   ckpt_interval: 5000
   end_ckpt: 50000
-=======
-  begin_ckpt: 9000
-  ckpt_interval: 1000
-  end_ckpt: 9000
->>>>>>> f20ce598f8d4d89ab3c0a3cd10d22c8b9e328f06
   verbose: false
   ensemble: false
 
