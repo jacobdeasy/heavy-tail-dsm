@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import logging
 import numpy as np
 import os
@@ -11,8 +12,7 @@ from tqdm import tqdm, trange
 
 from datasets import data_transform, get_dataset, inverse_data_transform
 from losses import get_optimizer
-from losses.dsm import (anneal_dsm_score_estimation,
-                        anneal_dsm_score_estimation_gennorm)
+from losses.dsm import anneal_dsm_score_estimation_gennorm
 from models import (anneal_Langevin_dynamics,
                     anneal_Langevin_dynamics_inpainting,
                     anneal_Langevin_dynamics_interpolation,
@@ -23,6 +23,11 @@ from models.ncsnv2 import NCSNv2Deeper, NCSNv2, NCSNv2Deepest
 
 
 __all__ = ['NCSNRunner']
+
+
+@contextlib.contextmanager
+def dummy_context_mgr():
+    yield None
 
 
 def get_model(config: argparse.Namespace) -> None:
@@ -55,9 +60,11 @@ class NCSNRunner():
         tb_logger = self.config.tb_logger
 
         score = get_model(self.config)
-
         score = torch.nn.DataParallel(score)
         optimizer = get_optimizer(self.config, score.parameters())
+
+        if self.args.amp:
+            scaler = torch.cuda.amp.GradScaler()
 
         start_epoch = 0
         step = 0
@@ -76,6 +83,8 @@ class NCSNRunner():
             step = states[3]
             if self.config.model.ema:
                 ema_helper.load_state_dict(states[4])
+
+        beta = self.args.beta
 
         sigmas = get_sigmas(self.config)
 
@@ -124,17 +133,40 @@ class NCSNRunner():
                     X = X.to(self.config.device)
                     X = data_transform(self.config, X)
 
-                    if self.args.beta == 2.0:
-                        loss = anneal_dsm_score_estimation(
-                            score, X, sigmas, None, self.config.training.anneal_power, hook)
+                    labels = torch.randint(0, len(sigmas), (X.shape[0],), device=X.device)
+                    used_sigmas = sigmas[labels].view(X.shape[0], *([1] * len(X.shape[1:])))
+
+                    if beta == 2.0:
+                        noise = torch.randn_like(X) * used_sigmas
+                        target = - 1 / (used_sigmas ** 2) * noise
                     else:
-                        loss = anneal_dsm_score_estimation_gennorm(
-                            score, X, sigmas, self.args.beta, None, self.config.training.anneal_power, hook)
+                        alpha = 2 ** 0.5
+                        gamma = np.random.gamma(shape=1+1/beta, scale=2**(beta/2), size=X.shape)
+                        delta = alpha * gamma ** (1 / beta) / (2 ** 0.5)
+                        gn_samples = (2 * np.random.rand(*X.shape) - 1) * delta
+
+                        noise = torch.tensor(gn_samples).float().to(X.device) * used_sigmas
+                        constant = - beta / (used_sigmas * 2.0 ** 0.5) ** beta
+                        target = constant * torch.sign(noise) * torch.abs(noise) ** (beta - 1)
+
+                    X_noised = X + noise
+
+                    with torch.cuda.amp.autocast() if self.args.amp else dummy_context_mgr() as _:
+                        scores = score(X_noised, labels)
+                        loss = 0.5 * ((scores - target) ** 2).sum(dim=(1, 2, 3)) * used_sigmas.squeeze() ** self.config.training.anneal_power
+                        if hook is not None:
+                            hook(loss, labels)
+                        loss = loss.mean(dim=0)
 
                     for p in score.parameters():
                         p.grad = None
-                    loss.backward()
-                    optimizer.step()
+                    if self.args.amp:
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        loss.backward()
+                        optimizer.step()
 
                     if self.config.model.ema:
                         ema_helper.update(score)
@@ -164,12 +196,8 @@ class NCSNRunner():
                         test_X = data_transform(self.config, test_X)
 
                         with torch.no_grad():
-                            if self.args.beta == 2.0:
-                                test_dsm_loss = anneal_dsm_score_estimation(
-                                    test_score, test_X, sigmas, None, self.config.training.anneal_power, hook=test_hook)
-                            else:
-                                test_dsm_loss = loss = anneal_dsm_score_estimation_gennorm(
-                                    score, X, sigmas, self.args.beta, None, self.config.training.anneal_power, hook=test_hook)
+                            test_dsm_loss = loss = anneal_dsm_score_estimation_gennorm(
+                                score, X, sigmas, self.args.beta, None, self.config.training.anneal_power, hook=test_hook)
                             tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                             test_tb_hook()
                             del test_score
@@ -460,13 +488,8 @@ class NCSNRunner():
                 x = data_transform(self.config, x)
 
                 with torch.no_grad():
-                    if self.args.beta == 2.0:
-                        test_loss = anneal_dsm_score_estimation(score, x, sigmas, None,
-                                                                self.config.training.anneal_power)
-                    else:
-                        loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, self.args.beta,
-                                                                   None, self.config.training.anneal_power,
-                                                                   None)
+                    test_loss = anneal_dsm_score_estimation_gennorm(score, x, sigmas, self.args.beta,
+                                                                    None, self.config.training.anneal_power, None)
                     if verbose:
                         logging.info(f"step: {step}, test_loss: {test_loss.item()}")
 

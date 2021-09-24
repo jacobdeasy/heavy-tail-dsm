@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from . import get_sigmas
@@ -12,7 +13,7 @@ class NCSNv2(nn.Module):
         self.rescaled = config.data.rescaled
         self.norm = get_normalization(config, conditional=False)
         self.ngf = ngf = config.model.ngf
-        self.num_classes = num_classes = config.model.num_classes
+        self.num_classes = config.model.num_classes
 
         self.act = act = get_act(config)
         self.register_buffer('sigmas', get_sigmas(config))
@@ -69,6 +70,7 @@ class NCSNv2(nn.Module):
             x = m(x)
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
@@ -161,6 +163,7 @@ class NCSNv2Deeper(nn.Module):
             x = m(x)
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
@@ -263,6 +266,7 @@ class NCSNv2Deepest(nn.Module):
             x = m(x)
         return x
 
+    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
