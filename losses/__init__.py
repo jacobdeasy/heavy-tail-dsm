@@ -39,6 +39,11 @@ def get_optimizer(config: argparse.Namespace, parameters: List[Tensor]) -> None:
                            use_gc=False,  # disables gradient centralization
                            amsgrad=False  # disables amsgrad
                            )
+    elif config.optim.optimizer == 'FusedAdam':
+        from apex.optimizers import FusedAdam
+        return FusedAdam(parameters, lr=config.optim.lr, weight_decay=config.optim.weight_decay,
+                         betas=(config.optim.beta1, 0.999), amsgrad=False,
+                         eps=config.optim.eps)
     else:
         raise NotImplementedError(f'Optimizer {config.optim.optimizer} not understood.')
 
