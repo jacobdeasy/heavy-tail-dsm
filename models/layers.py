@@ -429,7 +429,7 @@ class ResidualBlock(nn.Module):
                 self.normalize2 = normalization(output_dim)
                 self.conv2 = dilated_conv3x3(output_dim, output_dim, dilation=dilation, spec_norm=spec_norm)
             else:
-                # conv_shortcut = nn.Conv2d ### Something wierd here.
+                # conv_shortcut = nn.Conv2d ### Something weird here.
                 conv_shortcut = partial(conv1x1, spec_norm=spec_norm)
                 self.conv1 = conv3x3(input_dim, output_dim, spec_norm=spec_norm)
                 self.normalize2 = normalization(output_dim)

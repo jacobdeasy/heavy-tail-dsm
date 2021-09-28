@@ -3,13 +3,17 @@ import contextlib
 import logging
 import numpy as np
 import os
+import platform
+import time
 import torch
 
 from PIL import Image
+from torch._C import memory_format
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm, trange
 
+from . import fast_collate, get_hooks
 from datasets import data_transform, get_dataset, inverse_data_transform
 from losses import get_optimizer
 from losses.dsm import anneal_dsm_score_estimation_gennorm
@@ -17,9 +21,9 @@ from models import (anneal_Langevin_dynamics,
                     anneal_Langevin_dynamics_inpainting,
                     anneal_Langevin_dynamics_interpolation,
                     get_sigmas)
-from models.cond_refinenet_dilated import CondRefineNetDilated
 from models.ema import EMAHelper
-from models.ncsnv2 import NCSNv2Deeper, NCSNv2, NCSNv2Deepest
+from models.ncsn import CondRefineNetDilated
+from models.ncsnv2 import NCSNv2, NCSNv2Deeper, NCSNv2Deepest
 
 
 __all__ = ['NCSNRunner']
@@ -32,13 +36,13 @@ def dummy_context_mgr():
 
 def get_model(config: argparse.Namespace) -> None:
     if config.data.dataset == 'MNIST' or config.data.dataset == 'FashionMNIST':
-        return CondRefineNetDilated(config).to(config.device)
+        return CondRefineNetDilated(config)
     elif config.data.dataset == 'CIFAR10' or config.data.dataset == 'CELEBA':
-        return NCSNv2(config).to(config.device)
+        return NCSNv2(config)
     elif config.data.dataset == 'LSUN':
-        return NCSNv2Deeper(config).to(config.device)
+        return NCSNv2Deeper(config)
     elif config.data.dataset == "FFHQ":
-        return NCSNv2Deepest(config).to(config.device)
+        return NCSNv2Deepest(config)
 
 
 class NCSNRunner():
@@ -49,33 +53,47 @@ class NCSNRunner():
         os.makedirs(args.log_sample_path, exist_ok=True)
 
     def train(self) -> None:
+        if self.config.training.channels_last:
+            self.memory_format = torch.channels_last
+            print('\nWARNING: Channels last transforms are not implemented.\n')
+        else:
+            self.memory_format = torch.contiguous_format
+        if not platform.system() == 'Windows':
+            collate_fn = lambda b: fast_collate(b, memory_format=self.memory_format)
+        else:
+            collate_fn = None
+
+        # Data
         dataset, test_dataset = get_dataset(self.args, self.config)
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True,
-                                pin_memory=True, num_workers=self.config.data.num_workers)
+                                pin_memory=True, num_workers=self.config.data.num_workers, collate_fn=collate_fn)
         test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
-                                 pin_memory=True, num_workers=self.config.data.num_workers, drop_last=True)
+                                 pin_memory=True, num_workers=self.config.data.num_workers, drop_last=True, collate_fn=collate_fn)
         test_iter = iter(test_loader)
-        self.config.input_dim = self.config.data.image_size ** 2 * self.config.data.channels
 
-        tb_logger = self.config.tb_logger
+        # Model
+        model = get_model(self.config)
+        model.to(self.config.device, memory_format=self.memory_format)
+        model = torch.nn.DataParallel(model)
 
-        score = get_model(self.config)
-        score = torch.nn.DataParallel(score)
-        optimizer = get_optimizer(self.config, score.parameters())
-
-        if self.args.amp:
+        # Optimizer
+        optimizer = get_optimizer(self.config, model.parameters())
+        if self.config.training.amp:
             scaler = torch.cuda.amp.GradScaler()
 
+        # Hyperparams
+        beta = self.args.beta
+        sigmas = get_sigmas(self.config)
+
+        # Training options
         start_epoch = 0
         step = 0
-
         if self.config.model.ema:
             ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(score)
-
+            ema_helper.register(model)
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.log_path, 'checkpoint.pth'))
-            score.load_state_dict(states[0])
+            model.load_state_dict(states[0])
             ### Make sure we can resume with different eps
             states[1]['param_groups'][0]['eps'] = self.config.optim.eps
             optimizer.load_state_dict(states[1])
@@ -84,54 +102,18 @@ class NCSNRunner():
             if self.config.model.ema:
                 ema_helper.load_state_dict(states[4])
 
-        beta = self.args.beta
+        # Logging
+        tb_logger = self.config.tb_logger
+        hook, test_hook, tb_hook, test_tb_hook = get_hooks(tb_logger, self.config, sigmas, step=step)
 
-        sigmas = get_sigmas(self.config)
-
-        if self.config.training.log_all_sigmas:
-            test_loss_per_sigma = [None for _ in range(len(sigmas))]
-
-            def hook(loss, labels):
-                # for i in range(len(sigmas)):
-                #     if torch.any(labels == i):
-                #         test_loss_per_sigma[i] = torch.mean(loss[labels == i])
-                pass
-
-            def tb_hook():
-                # for i in range(len(sigmas)):
-                #     if test_loss_per_sigma[i] is not None:
-                #         tb_logger.add_scalar(f'test_loss_sigma_{i}', test_loss_per_sigma[i],
-                #                              global_step=step)
-                pass
-
-            def test_hook(loss, labels):
-                for i in range(len(sigmas)):
-                    if torch.any(labels == i):
-                        test_loss_per_sigma[i] = torch.mean(loss[labels == i])
-
-            def test_tb_hook():
-                for i in range(len(sigmas)):
-                    if test_loss_per_sigma[i] is not None:
-                        tb_logger.add_scalar(f'test_loss_sigma_{i}', test_loss_per_sigma[i],
-                                             global_step=step)
-
-        else:
-            hook = test_hook = None
-
-            def tb_hook():
-                pass
-
-            def test_tb_hook():
-                pass
-
-        progress_kwargs = dict(desc=f"Training progress")
-        with trange(self.config.training.n_iters, **progress_kwargs) as t:
+        # Training
+        with trange(self.config.training.n_iters, desc=f"Training progress") as pbar:
             for epoch in range(start_epoch, self.config.training.n_epochs):
                 for _, (X, _) in enumerate(dataloader):
+                    t_start = time.time()
                     step += 1
 
-                    X = X.to(self.config.device)
-                    X = data_transform(self.config, X)
+                    X = X.to(self.config.device, memory_format=self.memory_format)
 
                     labels = torch.randint(0, len(sigmas), (X.shape[0],), device=X.device)
                     used_sigmas = sigmas[labels].view(X.shape[0], *([1] * len(X.shape[1:])))
@@ -151,16 +133,16 @@ class NCSNRunner():
 
                     X_noised = X + noise
 
-                    with torch.cuda.amp.autocast() if self.args.amp else dummy_context_mgr() as _:
-                        scores = score(X_noised, labels)
+                    with torch.cuda.amp.autocast() if self.config.training.amp else dummy_context_mgr() as _:
+                        scores = model(X_noised, labels)
                         loss = 0.5 * ((scores - target) ** 2).sum(dim=(1, 2, 3)) * used_sigmas.squeeze() ** self.config.training.anneal_power
                         if hook is not None:
                             hook(loss, labels)
                         loss = loss.mean(dim=0)
 
-                    for p in score.parameters():
+                    for p in model.parameters():
                         p.grad = None
-                    if self.args.amp:
+                    if self.config.training.amp:
                         scaler.scale(loss).backward()
                         scaler.step(optimizer)
                         scaler.update()
@@ -169,43 +151,45 @@ class NCSNRunner():
                         optimizer.step()
 
                     if self.config.model.ema:
-                        ema_helper.update(score)
+                        ema_helper.update(model)
 
-                    t.set_postfix(loss=loss.item())
-                    t.update()
+                    pbar.set_postfix(loss=loss.item())
+                    pbar.update()
 
                     if step >= self.config.training.n_iters:
                         return 0
 
                     if step % 200 == 0:
+                        dt = time.time() - t_start
+                        tb_logger.add_scalar('iter/s', 1/dt, global_step=step)
                         tb_logger.add_scalar('loss', loss, global_step=step)
                         tb_hook()
 
                         if self.config.model.ema:
-                            test_score = ema_helper.ema_copy(score)
+                            test_model = ema_helper.ema_copy(model)
                         else:
-                            test_score = score
-                        test_score.eval()
+                            test_model = model
+                        test_model.eval()
 
                         try:
-                            test_X, _ = next(test_iter)
+                            X_test, _ = next(test_iter)
                         except StopIteration:
                             test_iter = iter(test_loader)
-                            test_X, _ = next(test_iter)
-                        test_X = test_X.to(self.config.device)
-                        test_X = data_transform(self.config, test_X)
+                            X_test, _ = next(test_iter)
+                        X_test = X_test.to(self.config.device, memory_format=self.memory_format)
+                        X_test = data_transform(self.config, X_test)
 
                         with torch.no_grad():
-                            test_dsm_loss = loss = anneal_dsm_score_estimation_gennorm(
-                                score, X, sigmas, self.args.beta, None, self.config.training.anneal_power, hook=test_hook)
+                            test_dsm_loss = anneal_dsm_score_estimation_gennorm(
+                                model, X, sigmas, self.args.beta, None, self.config.training.anneal_power, hook=test_hook)
                             tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                             test_tb_hook()
-                            del test_score
+                            del test_model
 
-                        score.train()
+                        model.train()
 
                     if step % self.config.training.snapshot_freq == 0:
-                        states = [score.state_dict(), optimizer.state_dict(), epoch, step]
+                        states = [model.state_dict(), optimizer.state_dict(), epoch, step]
                         if self.config.model.ema:
                             states.append(ema_helper.state_dict())
 
@@ -214,16 +198,16 @@ class NCSNRunner():
 
                         if self.config.training.snapshot_sampling:
                             if self.config.model.ema:
-                                test_score = ema_helper.ema_copy(score)
+                                test_model = ema_helper.ema_copy(model)
                             else:
-                                test_score = score
-                            test_score.eval()
+                                test_model = model
+                            test_model.eval()
 
                             init_samples = torch.rand(36, self.config.data.channels,
                                                     self.config.data.image_size, self.config.data.image_size,
                                                     device=self.config.device)
                             init_samples = data_transform(self.config, init_samples)
-                            all_samples = anneal_Langevin_dynamics(init_samples, test_score, sigmas.cpu().numpy(),
+                            all_samples = anneal_Langevin_dynamics(init_samples, test_model, sigmas.cpu().numpy(),
                                                                    self.config.sampling.n_steps_each,
                                                                    self.config.sampling.step_lr,
                                                                    final_only=True, verbose=True,
@@ -238,10 +222,10 @@ class NCSNRunner():
                                        os.path.join(self.args.log_sample_path, f'image_grid_{step}.png'))
                             torch.save(sample, os.path.join(self.args.log_sample_path, f'samples_{step}.pth'))
 
-                            del test_score
+                            del test_model
                             del all_samples
 
-                        score.train()
+                        model.train()
 
     def sample(self) -> None:
         if self.config.sampling.ckpt_id is None:
@@ -251,15 +235,15 @@ class NCSNRunner():
             states = torch.load(os.path.join(self.args.log_path, f'checkpoint_{self.config.sampling.ckpt_id}.pth'),
                                 map_location=self.config.device)
 
-        score = get_model(self.config)
-        score = torch.nn.DataParallel(score)
-        score.load_state_dict(states[0], strict=True)
+        model = get_model(self.config)
+        model = torch.nn.DataParallel(model)
+        model.load_state_dict(states[0], strict=True)
 
         if self.config.model.ema:
             ema_helper = EMAHelper(mu=self.config.model.ema_rate)
-            ema_helper.register(score)
+            ema_helper.register(model)
             ema_helper.load_state_dict(states[-1])
-            ema_helper.ema(score)
+            ema_helper.ema(model)
 
         sigmas_th = get_sigmas(self.config)
         sigmas = sigmas_th.cpu().numpy()
@@ -268,7 +252,7 @@ class NCSNRunner():
         dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
                                 pin_memory=True, num_workers=4)
 
-        score.eval()
+        model.eval()
 
         if not self.config.sampling.fid:
             if self.config.sampling.inpainting:
@@ -281,7 +265,7 @@ class NCSNRunner():
                                           self.config.data.image_size,
                                           device=self.config.device)
                 init_samples = data_transform(self.config, init_samples)
-                all_samples = anneal_Langevin_dynamics_inpainting(init_samples, refer_images[:width, ...], score,
+                all_samples = anneal_Langevin_dynamics_inpainting(init_samples, refer_images[:width, ...], model,
                                                                   sigmas,
                                                                   self.config.data.image_size,
                                                                   self.config.sampling.n_steps_each,
@@ -331,7 +315,7 @@ class NCSNRunner():
                                               device=self.config.device)
                     init_samples = data_transform(self.config, init_samples)
 
-                all_samples = anneal_Langevin_dynamics_interpolation(init_samples, score, sigmas,
+                all_samples = anneal_Langevin_dynamics_interpolation(init_samples, model, sigmas,
                                                                      self.config.sampling.n_interpolations,
                                                                      self.config.sampling.n_steps_each,
                                                                      self.config.sampling.step_lr, verbose=True,
@@ -376,7 +360,7 @@ class NCSNRunner():
                                               device=self.config.device)
                     init_samples = data_transform(self.config, init_samples)
 
-                all_samples = anneal_Langevin_dynamics(init_samples, score, sigmas,
+                all_samples = anneal_Langevin_dynamics(init_samples, model, sigmas,
                                                        self.config.sampling.n_steps_each,
                                                        self.config.sampling.step_lr, verbose=True,
                                                        final_only=self.config.sampling.final_only,
@@ -440,7 +424,7 @@ class NCSNRunner():
                                          self.config.data.image_size, device=self.config.device)
                     samples = data_transform(self.config, samples)
 
-                all_samples = anneal_Langevin_dynamics(samples, score, sigmas,
+                all_samples = anneal_Langevin_dynamics(samples, model, sigmas,
                                                        self.config.sampling.n_steps_each,
                                                        self.config.sampling.step_lr, verbose=False,
                                                        denoise=self.config.sampling.denoise)

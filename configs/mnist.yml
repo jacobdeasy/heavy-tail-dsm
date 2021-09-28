@@ -6,6 +6,8 @@ training:
   snapshot_sampling: false
   anneal_power: 2
   log_all_sigmas: false
+  channels_last: false
+  amp: false
 
 sampling:
   batch_size: 1024
@@ -59,6 +61,7 @@ model:
   normalization: InstanceNorm++
   nonlinearity: elu
   ngf: 64
+  variational: false
 
 optim:
   weight_decay: 0.000

@@ -1,7 +1,6 @@
 import argparse
 import copy
 import logging
-from typing import Dict
 import numpy as np
 import os
 import shutil
@@ -13,7 +12,7 @@ import yaml
 
 from typing import Dict
 
-from runners import *
+from runners.ncsn_runner import NCSNRunner
 
 
 def parse_args_and_config():
@@ -33,7 +32,6 @@ def parse_args_and_config():
     parser.add_argument('--ni', action='store_true', help="No interaction. Suitable for Slurm Job launcher")
 
     parser.add_argument('-b', '--beta', type=float, default=2.0, help='Generalized normal shape parameter.')
-    parser.add_argument('--amp', action='store_true', help='Whether to used automatic mixed precision training.')
 
     args = parser.parse_args()
     args.log_path = os.path.join(args.exp, 'logs', args.doc)

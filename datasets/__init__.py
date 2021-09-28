@@ -34,9 +34,9 @@ def get_dataset(args: argparse.Namespace,
 
     if config.data.dataset == 'MNIST':
         dataset = MNIST(os.path.join(args.exp, 'datasets', 'mnist'), train=True, download=True,
-                            transform=train_transform)
+                        transform=train_transform)
         test_dataset = MNIST(os.path.join(args.exp, 'datasets', 'mnist_test'), train=False, download=True,
-                                transform=test_transform)
+                             transform=test_transform)
 
     elif config.data.dataset == 'FashionMNIST':
         dataset = FashionMNIST(os.path.join(args.exp, 'datasets', 'mnist'), train=True, download=True,

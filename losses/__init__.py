@@ -227,8 +227,8 @@ class DemonRanger(Optimizer):
                 if self.use_gc and grad.dim() > 1:
                     grad.add_(-grad.mean(dim=tuple(range(1, grad.dim())), keepdim=True))
 
-                exp_avg_sq.mul_(beta2).addcmul_(1 - beta2, grad, grad)
-                exp_avg.mul_(beta1).add_(1 - beta1, grad)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1-beta2)
+                exp_avg.mul_(beta1).add_(grad, alpha=1-beta1)
 
                 if self.use_diffgrad:
                     previous_grad = state['previous_grad']
@@ -239,7 +239,7 @@ class DemonRanger(Optimizer):
 
                 momentum = exp_avg.clone()
                 momentum.div_(
-                    1 - (beta1 ** state['step'])).mul_(nu1).add_(1 - nu1, grad)
+                    1 - (beta1 ** state['step'])).mul_(nu1).add_(grad, alpha=1-nu1)
 
                 if wd != 0:
                     p.data.add_(-wd * lr, p.data)
