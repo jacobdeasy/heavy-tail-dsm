@@ -66,6 +66,10 @@ class NCSNRunner():
         self.format_memory()
 
         # Data
+        shape = (self.config.training.batch_size,
+                 self.config.data.channels,
+                 self.config.data.image_size,
+                 self.config.data.image_size)
         dataset, test_dataset = get_dataset(self.args, self.config)
         dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True,
                                 pin_memory=True, num_workers=self.config.data.num_workers,
@@ -217,24 +221,20 @@ class NCSNRunner():
                                 test_model = model
                             test_model.eval()
 
-                            init_samples = torch.rand(36, self.config.data.channels,
-                                                    self.config.data.image_size, self.config.data.image_size,
-                                                    device=self.config.device)
+                            init_samples = torch.rand(36, *shape[1:], device=self.config.device)
                             init_samples = data_transform(self.config, init_samples)
                             all_samples = ald(init_samples, test_model, sigmas.cpu().numpy(),
                                               self.config.sampling.n_steps_each,
                                               self.config.sampling.step_lr,
-                                              final_only=True, verbose=True,
+                                              final_only=True,
+                                              verbose=True,
                                               denoise=self.config.sampling.denoise)
-                            sample = all_samples[-1].view(all_samples[-1].shape[0], self.config.data.channels,
-                                                          self.config.data.image_size,
-                                                          self.config.data.image_size)
+                            sample = all_samples[-1].view(all_samples[-1].shape[0], *shape[1:])
                             sample = inverse_data_transform(self.config, sample)
 
                             image_grid = make_grid(sample, 5)
                             save_image(image_grid,
                                        os.path.join(self.args.log_sample_path, f'image_grid_{step}.png'))
-                            torch.save(sample, os.path.join(self.args.log_sample_path, f'samples_{step}.pth'))
 
                             del test_model
                             del all_samples

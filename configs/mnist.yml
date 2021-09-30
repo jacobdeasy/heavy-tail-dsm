@@ -1,7 +1,7 @@
 training:
   batch_size: 128
   n_epochs: 500000
-  n_iters: 10001
+  n_iters: 200001
   snapshot_freq: 5000
   snapshot_sampling: false
   anneal_power: 2
@@ -10,11 +10,11 @@ training:
   amp: false
 
 sampling:
-  batch_size: 1024
+  batch_size: 1000
   data_init: false
   step_lr: 0.0000062
-  n_steps_each: 20
-  ckpt_id: 10000
+  n_steps_each: 100
+  ckpt_id: 200000
   fid: true
   denoise: true
   num_samples4fid: 10000
@@ -31,7 +31,6 @@ fast_fid:
   ckpt_interval: 1000
   end_ckpt: 10000
   verbose: false
-  ensemble: false
 
 test:
   begin_ckpt: 5000
