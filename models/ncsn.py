@@ -1,7 +1,8 @@
-import matplotlib.pyplot as plt
+import math
 import torch
 import torch.nn as nn
 
+from argparse import Namespace
 from torch import Tensor
 
 from .layers import *
@@ -9,7 +10,7 @@ from .normalization import get_normalization
 
 
 class CondRefineNetDilated(nn.Module):
-    def __init__(self, config: argparse.Namespace) -> None:
+    def __init__(self, config: Namespace) -> None:
         super().__init__()
         self.config = config
 
@@ -66,7 +67,6 @@ class CondRefineNetDilated(nn.Module):
             self.end_conv = nn.Conv2d(self.ngf, 2 * self.channels, kernel_size=3, stride=1, padding=1)
         else:
             self.end_conv = nn.Conv2d(self.ngf, self.channels, kernel_size=3, stride=1, padding=1)
-            nn.init.ones_(self.end_conv.bias.data)
 
     def _compute_cond_module(self, module: nn.Module, x: Tensor, y: Tensor) -> Tensor:
         for m in module:
@@ -76,12 +76,18 @@ class CondRefineNetDilated(nn.Module):
 
     def _reparameterise_conv(self, x: Tensor) -> Tensor:
         mu, log_var = x.split(self.channels, dim=self.channel_dim)
-        print(f'log_var: min={log_var.min():.4f} mean={log_var.mean():.4f} median={log_var.median():.4f} max={log_var.max():.4f}')
-        plt.hist((log_var / 2).cpu().detach().numpy().flatten(), bins=100)
-        plt.show()
-        samples = mu + torch.exp(log_var / 2) * torch.randn_like(mu, device=mu.device)
-
-        return samples
+        # prior_var = 1
+        # kl_loss = (0.5 * (log_var.exp() / prior_var - 1 - log_var + math.log(prior_var))).mean()
+        kl = {
+            'loss': (0.5 * (log_var.exp() - 1 - log_var)).mean(),
+            'log_var': log_var
+        }
+        if self.training:
+            std = torch.exp(0.5 * log_var)
+            eps = torch.randn_like(std, device=std.device)
+            return mu + std * eps, kl
+        else:
+            return mu, kl
 
     @torch.cuda.amp.autocast()
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
@@ -102,10 +108,12 @@ class CondRefineNetDilated(nn.Module):
         output = self.normalizer(output, y)
         output = self.act(output)
         output = self.end_conv(output)
-        if self.config.model.variational:
-            output = self._reparameterise_conv(output)
 
-        return output
+        if self.config.model.variational:
+            output, kl = self._reparameterise_conv(output)
+            return output, kl
+        else:
+            return output
 
 
 class NCSNdeeper(nn.Module):

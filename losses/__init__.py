@@ -3,6 +3,7 @@ import math
 import torch
 import torch.optim as optim
 
+from adabelief_pytorch import AdaBelief
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
 from typing import List
@@ -21,6 +22,10 @@ def get_optimizer(config: argparse.Namespace, parameters: List[Tensor]) -> None:
         return optim.RMSprop(parameters, lr=config.optim.lr, weight_decay=config.optim.weight_decay)
     elif config.optim.optimizer == 'SGD':
         return optim.SGD(parameters, lr=config.optim.lr, momentum=0.9)
+    elif config.optim.optimizer == 'AdaBelief':
+        return AdaBelief(parameters, lr=config.optim.lr, eps=1e-16,
+                         betas=(config.optim.beta1, 0.999), weight_decay=config.optim.weight_decay,
+                         weight_decouple=True, rectify=False)
     elif config.optim.optimizer == 'DemonAdam':
         return DemonRanger(params=parameters,
                            lr=config.optim.lr,

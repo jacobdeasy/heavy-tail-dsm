@@ -1,4 +1,5 @@
 import argparse
+import math
 import torch
 import torch.nn as nn
 
@@ -20,9 +21,6 @@ class CondRefineNetDilated(nn.Module):
         self.act = act = get_act(config)
 
         self.begin_conv = nn.Conv2d(config.data.channels, ngf, 3, stride=1, padding=1)
-        self.normalizer = self.norm(ngf, self.num_classes)
-
-        self.end_conv = nn.Conv2d(ngf, config.data.channels, 3, stride=1, padding=1)
 
         self.res1 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
@@ -30,21 +28,18 @@ class CondRefineNetDilated(nn.Module):
             ConditionalResidualBlock(self.ngf, self.ngf, self.num_classes, resample=None, act=act,
                                      normalization=self.norm)]
         )
-
         self.res2 = nn.ModuleList([
             ConditionalResidualBlock(self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
                                      normalization=self.norm),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
                                      normalization=self.norm)]
         )
-
         self.res3 = nn.ModuleList([
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
                                      normalization=self.norm, dilation=2),
             ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample=None, act=act,
                                      normalization=self.norm, dilation=2)]
         )
-
         if config.data.image_size == 28:
             self.res4 = nn.ModuleList([
                 ConditionalResidualBlock(2 * self.ngf, 2 * self.ngf, self.num_classes, resample='down', act=act,
@@ -65,11 +60,32 @@ class CondRefineNetDilated(nn.Module):
         self.refine3 = CondRefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, self.num_classes, self.norm, act=act)
         self.refine4 = CondRefineBlock([self.ngf, self.ngf], self.ngf, self.num_classes, self.norm, act=act, end=True)
 
+        self.normalizer = self.norm(ngf, self.num_classes)
+        if config.model.variational:
+            self.end_conv = nn.Conv2d(self.ngf, 2 * self.channels, kernel_size=3, stride=1, padding=1)
+        else:
+            self.end_conv = nn.Conv2d(self.ngf, self.channels, kernel_size=3, stride=1, padding=1)
+
     def _compute_cond_module(self, module: nn.Module, x: Tensor, y: Tensor) -> Tensor:
         for m in module:
             x = m(x, y)
 
         return x
+
+    def _reparameterise_conv(self, x: Tensor) -> Tensor:
+        mu, log_var = x.split(self.channels, dim=self.channel_dim)
+        prior_var = 1
+        kl_loss = (0.5 * (log_var.exp() / prior_var - 1 - log_var + math.log(prior_var))).mean()
+        kl = {
+            'loss': kl_loss,
+            'log_var': log_var
+        }
+        if self.training:
+            std = torch.exp(0.5 * log_var)
+            eps = torch.randn_like(std, device=std.device)
+            return mu + std * eps, kl
+        else:
+            return mu, kl
 
     @torch.cuda.amp.autocast()
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
@@ -92,7 +108,12 @@ class CondRefineNetDilated(nn.Module):
         output = self.act(output)
         output = self.end_conv(output)
 
-        return output
+        print(self.config.model.variational)
+        if self.config.model.variational:
+            output, kl = self._reparameterise_conv(output)
+            return output, kl
+        else:
+            return output
 
 
 class CondRefineNetDeeperDilated(nn.Module):

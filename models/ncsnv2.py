@@ -1,5 +1,9 @@
+import math
 import torch
 import torch.nn as nn
+
+from argparse import Namespace
+from torch import Tensor
 
 from . import get_sigmas
 from .layers import *
@@ -7,22 +11,21 @@ from .normalization import get_normalization
 
 
 class NCSNv2(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: Namespace) -> None:
         super().__init__()
+        self.config = config
+        self.register_buffer('sigmas', get_sigmas(config))
+
+        self.channels = config.data.channels
+        self.channel_dim = -1 if config.training.channels_last else 1
+        self.ngf = config.model.ngf
+        self.num_classes = config.model.num_classes
+        self.act = act = get_act(config)
+        self.norm = get_normalization(config, conditional=False)
+
         self.logit_transform = config.data.logit_transform
         self.rescaled = config.data.rescaled
-        self.norm = get_normalization(config, conditional=False)
-        self.ngf = ngf = config.model.ngf
-        self.num_classes = config.model.num_classes
-
-        self.act = act = get_act(config)
-        self.register_buffer('sigmas', get_sigmas(config))
-        self.config = config
-
-        self.begin_conv = nn.Conv2d(config.data.channels, ngf, 3, stride=1, padding=1)
-
-        self.normalizer = self.norm(ngf, self.num_classes)
-        self.end_conv = nn.Conv2d(ngf, config.data.channels, 3, stride=1, padding=1)
+        self.begin_conv = nn.Conv2d(config.data.channels, self.ngf, 3, stride=1, padding=1)
 
         self.res1 = nn.ModuleList([
             ResidualBlock(self.ngf, self.ngf, resample=None, act=act,
@@ -30,21 +33,18 @@ class NCSNv2(nn.Module):
             ResidualBlock(self.ngf, self.ngf, resample=None, act=act,
                           normalization=self.norm)]
         )
-
         self.res2 = nn.ModuleList([
             ResidualBlock(self.ngf, 2 * self.ngf, resample='down', act=act,
                           normalization=self.norm),
             ResidualBlock(2 * self.ngf, 2 * self.ngf, resample=None, act=act,
                           normalization=self.norm)]
         )
-
         self.res3 = nn.ModuleList([
             ResidualBlock(2 * self.ngf, 2 * self.ngf, resample='down', act=act,
                           normalization=self.norm, dilation=2),
             ResidualBlock(2 * self.ngf, 2 * self.ngf, resample=None, act=act,
                           normalization=self.norm, dilation=2)]
         )
-
         if config.data.image_size == 28:
             self.res4 = nn.ModuleList([
                 ResidualBlock(2 * self.ngf, 2 * self.ngf, resample='down', act=act,
@@ -65,10 +65,32 @@ class NCSNv2(nn.Module):
         self.refine3 = RefineBlock([2 * self.ngf, 2 * self.ngf], self.ngf, act=act)
         self.refine4 = RefineBlock([self.ngf, self.ngf], self.ngf, act=act, end=True)
 
+        self.normalizer = self.norm(self.ngf, self.num_classes)
+        if config.model.variational:
+            self.end_conv = nn.Conv2d(self.ngf, 2 * self.channels, kernel_size=3, stride=1, padding=1)
+        else:
+            self.end_conv = nn.Conv2d(self.ngf, self.channels, kernel_size=3, stride=1, padding=1)
+
     def _compute_cond_module(self, module, x):
         for m in module:
             x = m(x)
+
         return x
+
+    def _reparameterise_conv(self, x: Tensor) -> Tensor:
+        mu, log_var = x.split(self.channels, dim=self.channel_dim)
+        prior_var = 1
+        kl_loss = (0.5 * (log_var.exp() / prior_var - 1 - log_var + math.log(prior_var))).mean()
+        kl = {
+            'loss': kl_loss,
+            'log_var': log_var
+        }
+        if self.training:
+            std = torch.exp(0.5 * log_var)
+            eps = torch.randn_like(std, device=std.device)
+            return mu + std * eps, kl
+        else:
+            return mu, kl
 
     @torch.cuda.amp.autocast()
     def forward(self, x, y):
@@ -94,10 +116,13 @@ class NCSNv2(nn.Module):
         output = self.end_conv(output)
 
         used_sigmas = self.sigmas[y].view(x.shape[0], *([1] * len(x.shape[1:])))
-
-        output = output / used_sigmas
-
-        return output
+        if self.config.model.variational:
+            output, kl = self._reparameterise_conv(output)
+            output = output / used_sigmas
+            return output, kl
+        else:
+            output = output / used_sigmas
+            return output
 
 
 class NCSNv2Deeper(nn.Module):

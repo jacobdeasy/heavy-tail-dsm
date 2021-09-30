@@ -10,15 +10,21 @@ def anneal_dsm_score_estimation(scorenet: torch.nn.Module,
                                 sigmas: Tensor,
                                 labels: Optional[Any] = None,
                                 anneal_power: Optional[float] = 2.0,
-                                hook: Optional[Callable] = None
+                                hook: Optional[Callable] = None,
+                                var: Optional[bool] = False
                                 ) -> Tensor:
     if labels is None:
         labels = torch.randint(0, len(sigmas), (samples.shape[0],), device=samples.device)
     used_sigmas = sigmas[labels].view(samples.shape[0], *([1] * len(samples.shape[1:])))
+
     noise = torch.randn_like(samples) * used_sigmas
+
     perturbed_samples = samples + noise
     target = - 1 / (used_sigmas ** 2) * noise
-    scores = scorenet(perturbed_samples, labels)
+    if var:
+        scores, kl = scorenet(perturbed_samples, labels)
+    else:
+        scores = scorenet(perturbed_samples, labels)
     loss = 1 / 2. * ((scores - target) ** 2).sum(dim=(1, 2, 3)) * used_sigmas.squeeze() ** anneal_power
 
     if hook is not None:
@@ -33,10 +39,11 @@ def anneal_dsm_score_estimation_gennorm(scorenet: torch.nn.Module,
                                         beta: float,
                                         labels: Optional[Any] = None,
                                         anneal_power: Optional[float] = 2.0,
-                                        hook: Optional[Callable] = None
+                                        hook: Optional[Callable] = None,
+                                        var: Optional[bool] = False
                                         ) -> Tensor:
     if beta == 2.0:
-        return anneal_dsm_score_estimation(scorenet, samples, sigmas, None, anneal_power, hook)
+        return anneal_dsm_score_estimation(scorenet, samples, sigmas, None, anneal_power, hook, var)
 
     if labels is None:
         labels = torch.randint(0, len(sigmas), (samples.shape[0],), device=samples.device)
@@ -49,7 +56,10 @@ def anneal_dsm_score_estimation_gennorm(scorenet: torch.nn.Module,
 
     perturbed_samples = samples + perturbation * used_sigmas
     target = _gennorm_score(perturbed_samples, mu=samples, alpha=used_sigmas * 2.0 ** 0.5, beta=beta)
-    scores = scorenet(perturbed_samples, labels)
+    if var:
+        scores, kl = scorenet(perturbed_samples, labels)
+    else:
+        scores = scorenet(perturbed_samples, labels)
     loss = 1 / 2. * ((scores - target) ** 2).sum(dim=(1, 2, 3)) * used_sigmas.squeeze() ** anneal_power
 
     if hook is not None:
