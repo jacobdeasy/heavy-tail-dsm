@@ -3,11 +3,9 @@ import contextlib
 import logging
 import numpy as np
 import os
-import pickle
 import platform
 import time
 import torch
-import torch_fidelity
 
 from PIL import Image
 from torch._C import memory_format
@@ -35,7 +33,8 @@ def dummy_context_mgr():
 
 def get_model(config: argparse.Namespace) -> None:
     if config.data.dataset == 'MNIST' or config.data.dataset == 'FashionMNIST':
-        return CondRefineNetDilated(config)
+        # return CondRefineNetDilated(config)
+        return NCSNv2(config)
     elif config.data.dataset == 'CIFAR10' or config.data.dataset == 'CELEBA':
         return NCSNv2(config)
     elif config.data.dataset == 'LSUN':
@@ -115,7 +114,7 @@ class NCSNRunner():
         hook, test_hook, tb_hook, test_tb_hook = get_hooks(tb_logger, self.config, sigmas, step=step)
 
         # Training
-        with trange(self.config.training.n_iters, desc=f"Training progress") as pbar:
+        with trange(self.config.training.n_iters-step, desc=f"Training progress") as pbar:
             for epoch in range(start_epoch, self.config.training.n_epochs):
                 for _, (X, _) in enumerate(dataloader):
                     t_start = time.time()
@@ -174,8 +173,7 @@ class NCSNRunner():
                         return 0
 
                     if step % 200 == 0:
-                        dt = time.time() - t_start
-                        tb_logger.add_scalar('iter_per_s', 1/dt, global_step=step)
+                        tb_logger.add_scalar('iter_per_s', 1/(time.time() - t_start), global_step=step)
                         tb_logger.add_scalar('loss', loss, global_step=step)
                         if self.config.model.variational:
                             tb_logger.add_scalar('kl/loss', kl['loss'], global_step=step)
@@ -226,7 +224,6 @@ class NCSNRunner():
                             all_samples = ald(init_samples, test_model, sigmas.cpu().numpy(),
                                               self.config.sampling.n_steps_each,
                                               self.config.sampling.step_lr,
-                                              final_only=True,
                                               verbose=True,
                                               denoise=self.config.sampling.denoise)
                             sample = all_samples[-1].view(all_samples[-1].shape[0], *shape[1:])
@@ -279,12 +276,12 @@ class NCSNRunner():
             if self.config.sampling.data_init:
                 data_iter = iter(dataloader)
                 init_samples, _ = next(data_iter)
-                init_samples = init_samples.to(self.config.device).to(memory_format=self.memory_format)
-                init_samples = data_transform(self.config, init_samples)
-                init_samples += sigmas_th[0] * torch.randn_like(init_samples)
             else:
                 init_samples = torch.rand(*shape, device=self.config.device)
-                init_samples = data_transform(self.config, init_samples)
+            init_samples = init_samples.to(self.config.device).to(memory_format=self.memory_format)
+            init_samples = data_transform(self.config, init_samples)
+            if self.config.sampling.data_init:
+                init_samples += sigmas_th[0] * torch.randn_like(init_samples)
 
             if self.config.sampling.inpainting:
                 refer_images, _ = next(data_iter)
@@ -298,7 +295,6 @@ class NCSNRunner():
                                           self.config.data.image_size,
                                           self.config.sampling.n_steps_each,
                                           self.config.sampling.step_lr)
-
                 refer_images = refer_images[:width, None, ...].expand(-1, width, -1, -1, -1).reshape(-1,
                                                                                                      *refer_images.shape[
                                                                                                       1:])
@@ -310,15 +306,13 @@ class NCSNRunner():
                                              self.config.sampling.n_interpolations,
                                              self.config.sampling.n_steps_each,
                                              self.config.sampling.step_lr,
-                                             verbose=True,
-                                             final_only=self.config.sampling.final_only)
+                                             verbose=True)
                 else:
                     fn = vald if self.config.model.variational else ald
                     all_samples = fn(init_samples, model, sigmas,
                                      self.config.sampling.n_steps_each,
                                      self.config.sampling.step_lr,
                                      verbose=True,
-                                     final_only=self.config.sampling.final_only,
                                      denoise=self.config.sampling.denoise)
 
             imgs = []
@@ -336,7 +330,7 @@ class NCSNRunner():
                          save_all=True, append_images=imgs[1:], duration=1, loop=0)
 
         else:
-            n_rounds = self.config.sampling.num_samples4fid // self.config.sampling.batch_size + 1
+            n_rounds = self.config.sampling.num_samples4fid // self.config.sampling.batch_size
             if self.config.sampling.data_init:
                 dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
                                         pin_memory=True, num_workers=4)
@@ -350,19 +344,18 @@ class NCSNRunner():
                     except StopIteration:
                         data_iter = iter(dataloader)
                         init_samples, _ = next(data_iter)
-                    init_samples = init_samples.to(self.config.device).to(memory_format=memory_format)
-                    init_samples = data_transform(self.config, init_samples)
-                    init_samples += sigmas_th[0] * torch.randn_like(init_samples)
                 else:
                     init_samples = torch.rand(*shape, device=self.config.device)
-                    init_samples = data_transform(self.config, init_samples)
+                init_samples = init_samples.to(self.config.device).to(memory_format=memory_format)
+                init_samples = data_transform(self.config, init_samples)
+                if self.config.sampling.data_init:
+                    init_samples += sigmas_th[0] * torch.randn_like(init_samples)
 
                 fn = vald if self.config.model.variational else ald
                 all_samples = fn(init_samples, model, sigmas,
                                  self.config.sampling.n_steps_each,
                                  self.config.sampling.step_lr,
                                  verbose=True,
-                                 final_only=self.config.sampling.final_only,
                                  denoise=self.config.sampling.denoise)
 
                 for img in all_samples[-1]:

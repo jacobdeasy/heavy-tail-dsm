@@ -96,14 +96,22 @@ class CondRefineNetDilated(nn.Module):
         output = self.begin_conv(x)
 
         layer1 = self._compute_cond_module(self.res1, output, y)
+        print(layer1.isnan().sum())
         layer2 = self._compute_cond_module(self.res2, layer1, y)
+        print(layer2.isnan().sum())
         layer3 = self._compute_cond_module(self.res3, layer2, y)
+        print(layer3.isnan().sum())
         layer4 = self._compute_cond_module(self.res4, layer3, y)
+        print(layer4.isnan().sum())
 
         ref1 = self.refine1([layer4], y, layer4.shape[2:])
+        print(ref1.isnan().sum())
         ref2 = self.refine2([layer3, ref1], y, layer3.shape[2:])
+        print(ref2.isnan().sum())
         ref3 = self.refine3([layer2, ref2], y, layer2.shape[2:])
+        print(ref3.isnan().sum())
         output = self.refine4([layer1, ref3], y, layer1.shape[2:])
+        print(output.isnan().sum())
 
         output = self.normalizer(output, y)
         output = self.act(output)

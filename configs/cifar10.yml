@@ -63,7 +63,7 @@ model:
 
 optim:
   weight_decay: 0.000
-  optimizer: "DemonAdam"
+  optimizer: "AdaBelief"
   lr: 0.0001
   beta1: 0.9
   amsgrad: true

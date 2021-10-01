@@ -29,7 +29,6 @@ def vald(x: Tensor,
          sigmas: Tensor,
          n_steps_each: Optional[int] = 200,
          step_lr: Optional[float] = 0.000008,
-         final_only: Optional[bool] = False,
          verbose: Optional[bool] = False,
          denoise: Optional[bool] = True
          ) -> List[Tensor]:
@@ -49,8 +48,7 @@ def vald(x: Tensor,
                 image_norm = torch.norm(x.view(x.shape[0], -1), dim=-1).mean()
                 grad_mean_norm = torch.norm(grad.mean(dim=0).view(-1)) ** 2 * sigma ** 2
 
-                if not final_only:
-                    images.append(x.to('cpu'))
+                images.append(x.to('cpu'))
                 if verbose:
                     print("level: {:.4f}, step_size: {:.4f}, grad_norm: {:.4f}, image_norm: {:.4f}, grad_mean_norm: {:.4f}".format(
                         c, step_size, grad_norm.item(), image_norm.item(), grad_mean_norm.item()))
@@ -60,10 +58,7 @@ def vald(x: Tensor,
             x += sigmas[-1] ** 2 * model(x, last_noise)[0]
             images.append(x.to('cpu'))
 
-        if final_only:
-            return [x.to('cpu')]
-        else:
-            return images
+        return images
 
 
 @torch.no_grad()
@@ -72,7 +67,6 @@ def ald(x: Tensor,
         sigmas: Tensor,
         n_steps_each: Optional[int] = 200,
         step_lr: Optional[float] = 0.000008,
-        final_only: Optional[bool] = False,
         verbose: Optional[bool] = False,
         denoise: Optional[bool] = True
         ) -> List[Tensor]:
@@ -98,8 +92,7 @@ def ald(x: Tensor,
                 snr = np.sqrt(step_size / 2.) * grad_norm / noise_norm
                 grad_mean_norm = torch.norm(grad.mean(dim=0).view(-1)) ** 2 * sigma ** 2
 
-                if not final_only:
-                    images.append(x.to('cpu'))
+                images.append(x.to('cpu'))
                 if verbose:
                     print("level: {:.4f}, step_size: {:.4f}, grad_norm: {:.4f}, image_norm: {:.4f}, snr: {:.4f}, grad_mean_norm: {:.4f}".format(
                         c, step_size, grad_norm.item(), image_norm.item(), snr.item(), grad_mean_norm.item()))
@@ -111,10 +104,7 @@ def ald(x: Tensor,
             x += sigmas[-1] ** 2 * model(x, last_noise)
             images.append(x.to('cpu'))
 
-        if final_only:
-            return [x.to('cpu')]
-        else:
-            return images
+        return images
 
 
 @torch.no_grad()
@@ -159,7 +149,6 @@ def ald_interp(x: Tensor,
                n_interpolations: int,
                n_steps_each: Optional[int] = 200,
                step_lr: Optional[float] = 0.000008,
-               final_only: Optional[bool] = False,
                verbose: Optional[bool] = False
                ) -> List[Tensor]:
     model.eval()
@@ -192,13 +181,9 @@ def ald_interp(x: Tensor,
 
             snr = np.sqrt(step_size / 2.) * grad_norm / noise_norm
 
-            if not final_only:
-                images.append(x.to('cpu'))
+            images.append(x.to('cpu'))
             if verbose:
                 print("level: {:.4f}, step_size: {:.4f}, image_norm: {:.4f}, grad_norm: {:.4f}, snr: {:.4f}".format(
                     c, step_size, image_norm.item(), grad_norm.item(), snr.item()))
 
-    if final_only:
-        return [x.to('cpu')]
-    else:
-        return images
+    return images

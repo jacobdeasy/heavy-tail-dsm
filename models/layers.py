@@ -34,6 +34,7 @@ def conv1x1(in_planes, out_planes, stride=1, bias=True, spec_norm=False):
                      padding=0, bias=bias)
     if spec_norm:
         conv = spectral_norm(conv)
+
     return conv
 
 
@@ -51,6 +52,7 @@ def stride_conv3x3(in_planes, out_planes, kernel_size, bias=True, spec_norm=Fals
                      padding=kernel_size // 2, bias=bias)
     if spec_norm:
         conv = spectral_norm(conv)
+
     return conv
 
 
@@ -65,103 +67,102 @@ def dilated_conv3x3(in_planes, out_planes, dilation, bias=True, spec_norm=False)
 class CRPBlock(nn.Module):
     def __init__(self, features, n_stages, act=nn.ReLU(), maxpool=True, spec_norm=False):
         super().__init__()
-        self.convs = nn.ModuleList()
-        for i in range(n_stages):
-            self.convs.append(conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
         self.n_stages = n_stages
-        if maxpool:
-            self.maxpool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
-        else:
-            self.maxpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
-
         self.act = act
+
+        self.convs = nn.ModuleList()
+        for _ in range(n_stages):
+            self.convs.append(conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
+        if maxpool:
+            self.pool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
+        else:
+            self.pool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
 
     def forward(self, x):
         x = self.act(x)
         path = x
         for i in range(self.n_stages):
-            path = self.maxpool(path)
+            path = self.pool(path)
             path = self.convs[i](path)
             x = path + x
+
         return x
 
 
 class CondCRPBlock(nn.Module):
     def __init__(self, features, n_stages, num_classes, normalizer, act=nn.ReLU(), spec_norm=False):
         super().__init__()
+        self.n_stages = n_stages
+        self.act = act
+
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         self.normalizer = normalizer
-        for i in range(n_stages):
+        for _ in range(n_stages):
             self.norms.append(normalizer(features, num_classes, bias=True))
             self.convs.append(conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
-
-        self.n_stages = n_stages
-        self.maxpool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
-        self.act = act
+        self.pool = nn.AvgPool2d(kernel_size=5, stride=1, padding=2)
+        
 
     def forward(self, x, y):
         x = self.act(x)
         path = x
         for i in range(self.n_stages):
             path = self.norms[i](path, y)
-            path = self.maxpool(path)
+            path = self.pool(path)
             path = self.convs[i](path)
 
             x = path + x
+
         return x
 
 
 class RCUBlock(nn.Module):
     def __init__(self, features, n_blocks, n_stages, act=nn.ReLU(), spec_norm=False):
         super().__init__()
-
-        for i in range(n_blocks):
-            for j in range(n_stages):
-                setattr(self, '{}_{}_conv'.format(i + 1, j + 1), conv3x3(features, features, stride=1, bias=False,
-                                                                         spec_norm=spec_norm))
-
-        self.stride = 1
         self.n_blocks = n_blocks
         self.n_stages = n_stages
         self.act = act
+
+        for i in range(n_blocks):
+            for j in range(n_stages):
+                setattr(self, f'{i+1}_{j+1}_conv',
+                        conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
 
     def forward(self, x):
         for i in range(self.n_blocks):
             residual = x
             for j in range(self.n_stages):
                 x = self.act(x)
-                x = getattr(self, '{}_{}_conv'.format(i + 1, j + 1))(x)
-
+                x = getattr(self, f'{i+1}_{j+1}_conv')(x)
             x += residual
+
         return x
 
 
 class CondRCUBlock(nn.Module):
     def __init__(self, features, n_blocks, n_stages, num_classes, normalizer, act=nn.ReLU(), spec_norm=False):
         super().__init__()
-
-        for i in range(n_blocks):
-            for j in range(n_stages):
-                setattr(self, '{}_{}_norm'.format(i + 1, j + 1), normalizer(features, num_classes, bias=True))
-                setattr(self, '{}_{}_conv'.format(i + 1, j + 1),
-                        conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
-
-        self.stride = 1
         self.n_blocks = n_blocks
         self.n_stages = n_stages
         self.act = act
         self.normalizer = normalizer
 
+        for i in range(n_blocks):
+            for j in range(n_stages):
+                setattr(self, f'{i+1}_{j+1}_norm', normalizer(features, num_classes, bias=True))
+                setattr(self, f'{i+1}_{j+1}_conv',
+                        conv3x3(features, features, stride=1, bias=False, spec_norm=spec_norm))
+
     def forward(self, x, y):
         for i in range(self.n_blocks):
             residual = x
             for j in range(self.n_stages):
-                x = getattr(self, '{}_{}_norm'.format(i + 1, j + 1))(x, y)
+                x = getattr(self, f'{i+1}_{j+1}_norm')(x, y)
                 x = self.act(x)
-                x = getattr(self, '{}_{}_conv'.format(i + 1, j + 1))(x)
-
+                x = getattr(self, f'{i+1}_{j+1}_conv')(x)
             x += residual
+
         return x
 
 
@@ -172,9 +173,9 @@ class MSFBlock(nn.Module):
         """
         super().__init__()
         assert isinstance(in_planes, list) or isinstance(in_planes, tuple)
-        self.convs = nn.ModuleList()
         self.features = features
 
+        self.convs = nn.ModuleList()
         for i in range(len(in_planes)):
             self.convs.append(conv3x3(in_planes[i], features, stride=1, bias=True, spec_norm=spec_norm))
 
@@ -184,6 +185,7 @@ class MSFBlock(nn.Module):
             h = self.convs[i](xs[i])
             h = F.interpolate(h, size=shape, mode='bilinear', align_corners=True)
             sums += h
+
         return sums
 
 
@@ -211,6 +213,7 @@ class CondMSFBlock(nn.Module):
             h = self.convs[i](h)
             h = F.interpolate(h, size=shape, mode='bilinear', align_corners=True)
             sums += h
+
         return sums
 
 
@@ -312,6 +315,7 @@ class ConvMeanPool(nn.Module):
         output = self.conv(inputs)
         output = sum([output[:, :, ::2, ::2], output[:, :, 1::2, ::2],
                       output[:, :, ::2, 1::2], output[:, :, 1::2, 1::2]]) / 4.
+
         return output
 
 
@@ -326,6 +330,7 @@ class MeanPoolConv(nn.Module):
         output = inputs
         output = sum([output[:, :, ::2, ::2], output[:, :, 1::2, ::2],
                       output[:, :, ::2, 1::2], output[:, :, 1::2, 1::2]]) / 4.
+
         return self.conv(output)
 
 
@@ -341,6 +346,7 @@ class UpsampleConv(nn.Module):
         output = inputs
         output = torch.cat([output, output, output, output], dim=1)
         output = self.pixelshuffle(output)
+
         return self.conv(output)
 
 

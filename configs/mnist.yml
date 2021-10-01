@@ -22,16 +22,6 @@ sampling:
   interpolation: false
   n_interpolations: 15
 
-fast_fid:
-  batch_size: 128
-  num_samples: 10000
-  step_lr: 0.0000062
-  n_steps_each: 5
-  begin_ckpt: 10000
-  ckpt_interval: 1000
-  end_ckpt: 10000
-  verbose: false
-
 test:
   begin_ckpt: 5000
   end_ckpt: 10000
@@ -64,7 +54,7 @@ model:
 optim:
   weight_decay: 0.000
   optimizer: "AdaBelief"
-  lr: 0.001
+  lr: 0.0001
   beta1: 0.9
   amsgrad: true
   eps: 0.00000001
