@@ -17,9 +17,8 @@ from . import fast_collate, get_hooks
 from datasets import data_transform, get_dataset, inverse_data_transform
 from losses import get_optimizer
 from losses.dsm import anneal_dsm_score_estimation_gennorm
-from models import ald, ald_inpaint, ald_interp, get_sigmas, vald
+from models import ald, ald_inpaint, ald_interp, get_noise, get_sigmas, vald
 from models.ema import EMAHelper
-from models.ncsn import CondRefineNetDilated
 from models.ncsnv2 import NCSNv2, NCSNv2Deeper, NCSNv2Deepest
 
 
@@ -101,7 +100,7 @@ class NCSNRunner():
         if self.args.resume_training:
             states = torch.load(os.path.join(self.args.log_path, 'checkpoint.pth'))
             model.load_state_dict(states[0])
-            ### Make sure we can resume with different eps
+            # Make sure we can resume with different eps
             states[1]['param_groups'][0]['eps'] = self.config.optim.eps
             optimizer.load_state_dict(states[1])
             start_epoch = states[2]
@@ -116,30 +115,18 @@ class NCSNRunner():
         # Training
         with trange(self.config.training.n_iters-step, desc=f"Training progress") as pbar:
             for epoch in range(start_epoch, self.config.training.n_epochs):
-                for _, (X, _) in enumerate(dataloader):
+                for _, (x, _) in enumerate(dataloader):
                     t_start = time.time()
                     step += 1
 
-                    X = X.to(self.config.device, memory_format=self.memory_format)
-                    X = data_transform(self.config, X)
+                    x = x.to(self.config.device, memory_format=self.memory_format)
+                    x = data_transform(self.config, x)
 
-                    labels = torch.randint(0, len(sigmas), (X.shape[0],), device=X.device)
-                    used_sigmas = sigmas[labels].view(X.shape[0], *([1] * len(X.shape[1:])))
+                    labels = torch.randint(0, len(sigmas), (x.shape[0],), device=x.device)
+                    used_sigmas = sigmas[labels].view(x.shape[0], *([1] * len(x.shape[1:])))
 
-                    if beta == 2.0:
-                        noise = torch.randn_like(X) * used_sigmas
-                        target = - 1 / (used_sigmas ** 2) * noise
-                    else:
-                        alpha = 2 ** 0.5
-                        gamma = np.random.gamma(shape=1+1/beta, scale=2**(beta/2), size=X.shape)
-                        delta = alpha * gamma ** (1 / beta) / (2 ** 0.5)
-                        gn_samples = (2 * np.random.rand(*X.shape) - 1) * delta
-
-                        noise = torch.tensor(gn_samples).float().to(X.device) * used_sigmas
-                        constant = - beta / (used_sigmas * 2.0 ** 0.5) ** beta
-                        target = constant * torch.sign(noise) * torch.abs(noise) ** (beta - 1)
-
-                    X_noised = X + noise
+                    noise, target = get_noise(x, beta, sigmas=used_sigmas)
+                    X_noised = x + noise
 
                     with torch.cuda.amp.autocast() if self.config.training.amp else dummy_context_mgr() as _:
                         if self.config.model.variational:
@@ -196,7 +183,7 @@ class NCSNRunner():
 
                         with torch.no_grad():
                             test_dsm_loss = anneal_dsm_score_estimation_gennorm(
-                                model, X, sigmas, self.args.beta, None, self.config.training.anneal_power,
+                                model, x, sigmas, self.args.beta, None, self.config.training.anneal_power,
                                 hook=test_hook, var=self.config.model.variational)
                             tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                             test_tb_hook()
@@ -221,7 +208,7 @@ class NCSNRunner():
 
                             init_samples = torch.rand(36, *shape[1:], device=self.config.device)
                             init_samples = data_transform(self.config, init_samples)
-                            all_samples = ald(init_samples, test_model, sigmas.cpu().numpy(),
+                            all_samples = ald(init_samples, test_model, sigmas.cpu().numpy(), beta,
                                               self.config.sampling.n_steps_each,
                                               self.config.sampling.step_lr,
                                               verbose=True,
@@ -260,6 +247,7 @@ class NCSNRunner():
             ema_helper.load_state_dict(states[-1])
             ema_helper.ema(model)
 
+        beta = self.args.beta
         sigmas_th = get_sigmas(self.config)
         sigmas = sigmas_th.cpu().numpy()
 
@@ -309,7 +297,7 @@ class NCSNRunner():
                                              verbose=True)
                 else:
                     fn = vald if self.config.model.variational else ald
-                    all_samples = fn(init_samples, model, sigmas,
+                    all_samples = fn(init_samples, model, sigmas, beta,
                                      self.config.sampling.n_steps_each,
                                      self.config.sampling.step_lr,
                                      verbose=True,
@@ -352,7 +340,7 @@ class NCSNRunner():
                     init_samples += sigmas_th[0] * torch.randn_like(init_samples)
 
                 fn = vald if self.config.model.variational else ald
-                all_samples = fn(init_samples, model, sigmas,
+                all_samples = fn(init_samples, model, sigmas, beta,
                                  self.config.sampling.n_steps_each,
                                  self.config.sampling.step_lr,
                                  verbose=True,

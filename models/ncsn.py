@@ -76,8 +76,6 @@ class CondRefineNetDilated(nn.Module):
 
     def _reparameterise_conv(self, x: Tensor) -> Tensor:
         mu, log_var = x.split(self.channels, dim=self.channel_dim)
-        # prior_var = 1
-        # kl_loss = (0.5 * (log_var.exp() / prior_var - 1 - log_var + math.log(prior_var))).mean()
         kl = {
             'loss': (0.5 * (log_var.exp() - 1 - log_var)).mean(),
             'log_var': log_var

@@ -4,7 +4,27 @@ import numpy as np
 import torch
 
 from torch import Tensor
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
+
+def get_noise(x: Tensor,
+              beta: float,
+              sigmas: Optional[Tensor] = torch.tensor(1.0)
+              ) -> Tuple[Tensor, Tensor]:
+    if beta == 2.0:
+        noise = sigmas * torch.randn_like(x, device=sigmas.device)
+        score = - 1 / (sigmas ** 2) * noise
+    else:
+        alpha = 2 ** 0.5
+        gamma = np.random.gamma(shape=1+1/beta, scale=2**(beta/2), size=x.shape)
+        delta = alpha * gamma ** (1 / beta) / (2 ** 0.5)
+        gn_samples = (2 * np.random.rand(*x.shape) - 1) * delta
+
+        noise = sigmas * torch.tensor(gn_samples).float().to(x.device)
+        constant = - beta / (sigmas * 2.0 ** 0.5) ** beta
+        score = constant * torch.sign(noise) * torch.abs(noise) ** (beta - 1)
+
+    return noise.to(x.device), score.to(x.device)
 
 
 def get_sigmas(config: argparse.Namespace) -> Tensor:
@@ -27,6 +47,7 @@ def get_sigmas(config: argparse.Namespace) -> Tensor:
 def vald(x: Tensor,
          model: torch.nn.Module,
          sigmas: Tensor,
+         beta: float,
          n_steps_each: Optional[int] = 200,
          step_lr: Optional[float] = 0.000008,
          verbose: Optional[bool] = False,
@@ -65,6 +86,7 @@ def vald(x: Tensor,
 def ald(x: Tensor,
         model: torch.nn.Module,
         sigmas: Tensor,
+        beta: float,
         n_steps_each: Optional[int] = 200,
         step_lr: Optional[float] = 0.000008,
         verbose: Optional[bool] = False,
@@ -77,16 +99,16 @@ def ald(x: Tensor,
         # grad_norms = []
         for c, sigma in enumerate(sigmas):
             labels = (torch.ones(x.shape[0], device=x.device) * c).long()
-            # step_size = step_lr * (sigma / sigmas[-1]) ** 2
-            step_size = step_lr * (sigmas[0] / sigmas[-1]) ** 2
+            step_size = step_lr * (sigma / sigmas[-1]) ** 2
+            # step_size = step_lr * (sigmas[0] / sigmas[-1]) ** 2
             for _ in range(n_steps_each):
                 grad = model(x, labels)
 
-                noise = torch.randn_like(x)
+                noise, _ = get_noise(x, beta, sigmas=torch.tensor(1.0, device=x.device))
                 grad_norm = torch.norm(grad.view(grad.shape[0], -1), dim=-1).mean()
                 # grad_norms.append(grad_norm)
                 noise_norm = torch.norm(noise.view(noise.shape[0], -1), dim=-1).mean()
-                x += step_size * grad + noise * np.sqrt(step_size * 2)
+                x += step_size * grad + np.sqrt(step_size * 2) * noise
 
                 image_norm = torch.norm(x.view(x.shape[0], -1), dim=-1).mean()
                 snr = np.sqrt(step_size / 2.) * grad_norm / noise_norm
