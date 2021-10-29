@@ -1,9 +1,9 @@
 training:
   batch_size: 128
   n_epochs: 500000
-  n_iters: 20001
-  snapshot_freq: 5000
-  snapshot_sampling: false
+  n_iters: 200001
+  snapshot_freq: 10000
+  snapshot_sampling: true
   anneal_power: 2
   log_all_sigmas: false
   channels_last: false
@@ -14,7 +14,7 @@ sampling:
   data_init: false
   step_lr: 0.0000062
   n_steps_each: 500
-  ckpt_id: 10000
+  ckpt_id: 200000
   fid: false
   denoise: true
   num_samples4fid: 10000
@@ -52,7 +52,7 @@ model:
   variational: false
 
 optim:
-  weight_decay: 0.000
+  weight_decay: 0.0
   optimizer: "AdaBelief"
   lr: 0.0001
   beta1: 0.9
