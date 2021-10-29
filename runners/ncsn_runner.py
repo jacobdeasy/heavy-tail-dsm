@@ -55,10 +55,11 @@ class NCSNRunner():
             print('\nWARNING: Channels last transforms are not implemented.\n')
         else:
             self.memory_format = torch.contiguous_format
-        if not platform.system() == 'Windows':
-            self.collate_fn = lambda b: fast_collate(b, memory_format=self.memory_format)
-        else:
-            self.collate_fn = None
+        # if not platform.system() == 'Windows':
+        #     self.collate_fn = lambda b: fast_collate(b, memory_format=self.memory_format)
+        # else:
+            # self.collate_fn = None
+        self.collate_fn = None
 
     def train(self) -> None:
         self.format_memory()
