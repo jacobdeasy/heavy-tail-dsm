@@ -1,8 +1,8 @@
 training:
-  batch_size: 128
+  batch_size: 96
   n_epochs: 500000
   n_iters: 300001
-  snapshot_freq: 10000
+  snapshot_freq: 1000
   snapshot_sampling: true
   anneal_power: 2
   log_all_sigmas: false
@@ -13,7 +13,7 @@ sampling:
   batch_size: 25
   data_init: false
   step_lr: 0.0000062
-  n_steps_each: 500
+  n_steps_each: 10
   ckpt_id: 300000
   fid: false
   denoise: true

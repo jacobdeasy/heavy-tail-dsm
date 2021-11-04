@@ -296,42 +296,23 @@ class CondRefineBlock(nn.Module):
 class ConvMeanPool(nn.Module):
     def __init__(self, input_dim, output_dim, kernel_size=3, biases=True, adjust_padding=False, spec_norm=False):
         super().__init__()
+        conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=kernel_size // 2, bias=biases)
+        if spec_norm:
+            conv = spectral_norm(conv)
         if not adjust_padding:
-            conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=kernel_size // 2, bias=biases)
-            if spec_norm:
-                conv = spectral_norm(conv)
             self.conv = conv
         else:
-            conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=kernel_size // 2, bias=biases)
-            if spec_norm:
-                conv = spectral_norm(conv)
-
             self.conv = nn.Sequential(
                 nn.ZeroPad2d((1, 0, 1, 0)),
                 conv
             )
 
-    def forward(self, inputs):
-        output = self.conv(inputs)
-        output = sum([output[:, :, ::2, ::2], output[:, :, 1::2, ::2],
-                      output[:, :, ::2, 1::2], output[:, :, 1::2, 1::2]]) / 4.
+    def forward(self, x):
+        x = self.conv(x)
+        x = sum([x[:, :, ::2, ::2], x[:, :, 1::2, ::2],
+                 x[:, :, ::2, 1::2], x[:, :, 1::2, 1::2]]) / 4.
 
-        return output
-
-
-class MeanPoolConv(nn.Module):
-    def __init__(self, input_dim, output_dim, kernel_size=3, biases=True, spec_norm=False):
-        super().__init__()
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride=1, padding=kernel_size // 2, bias=biases)
-        if spec_norm:
-            self.conv = spectral_norm(self.conv)
-
-    def forward(self, inputs):
-        output = inputs
-        output = sum([output[:, :, ::2, ::2], output[:, :, 1::2, ::2],
-                      output[:, :, ::2, 1::2], output[:, :, 1::2, 1::2]]) / 4.
-
-        return self.conv(output)
+        return x
 
 
 class UpsampleConv(nn.Module):

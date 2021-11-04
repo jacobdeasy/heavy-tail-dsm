@@ -11,11 +11,12 @@ training:
 
 sampling:
   batch_size: 25
+  batch_size4fid: 1000
   data_init: false
   step_lr: 0.0000062
-  n_steps_each: 500
+  n_steps_each: 100
   ckpt_id: 200000
-  fid: false
+  fid: true
   denoise: true
   num_samples4fid: 10000
   inpainting: false

@@ -138,6 +138,7 @@ class ConditionalNoneNorm2d(nn.Module):
         else:
             gamma = self.embed(y)
             out = gamma.view(-1, self.num_features, 1, 1) * x
+
         return out
 
 
@@ -175,6 +176,7 @@ class InstanceNorm2dPlus(nn.Module):
         else:
             h = h + means[..., None, None] * self.alpha[..., None, None]
             out = self.gamma.view(-1, self.num_features, 1, 1) * h
+
         return out
 
 

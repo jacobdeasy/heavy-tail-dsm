@@ -100,8 +100,12 @@ def parse_args_and_config():
         logger.setLevel(level)
 
         if args.sample:
-            os.makedirs(os.path.join(args.exp, 'image_samples'), exist_ok=True)
-            args.image_folder = os.path.join(args.exp, 'image_samples', args.image_folder)
+            if new_config.sampling.fid:
+                os.makedirs(os.path.join(args.exp, 'fid_samples'), exist_ok=True)
+                args.image_folder = os.path.join(args.exp, 'fid_samples', args.image_folder)
+            else:
+                os.makedirs(os.path.join(args.exp, 'image_samples'), exist_ok=True)
+                args.image_folder = os.path.join(args.exp, 'image_samples', args.image_folder)
             if not os.path.exists(args.image_folder):
                 os.makedirs(args.image_folder)
             else:
@@ -187,9 +191,6 @@ def main():
             runner.test()
         elif args.sample:
             runner.sample()
-        elif args.fast_fid:
-            # runner.fast_fid()
-            runner.metrics()
         else:
             runner.train()
     except:

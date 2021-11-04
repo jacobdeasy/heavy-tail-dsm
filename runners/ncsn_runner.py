@@ -319,11 +319,12 @@ class NCSNRunner():
                          save_all=True, append_images=imgs[1:], duration=1, loop=0)
 
         else:
-            n_rounds = self.config.sampling.num_samples4fid // self.config.sampling.batch_size
+            n_rounds = self.config.sampling.num_samples4fid // self.config.sampling.batch_size4fid
             if self.config.sampling.data_init:
-                dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
+                dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size4fid, shuffle=True,
                                         pin_memory=True, num_workers=4)
                 data_iter = iter(dataloader)
+            shape = (self.config.sampling.batch_size4fid, *shape[1:])
 
             img_id = 0
             for _ in tqdm(range(n_rounds), desc='Generating image samples for FID/inception score evaluation'):
@@ -335,7 +336,7 @@ class NCSNRunner():
                         init_samples, _ = next(data_iter)
                 else:
                     init_samples = torch.rand(*shape, device=self.config.device)
-                init_samples = init_samples.to(self.config.device).to(memory_format=memory_format)
+                init_samples = init_samples.to(self.config.device).to(memory_format=self.memory_format)
                 init_samples = data_transform(self.config, init_samples)
                 if self.config.sampling.data_init:
                     init_samples += sigmas_th[0] * torch.randn_like(init_samples)
@@ -344,7 +345,7 @@ class NCSNRunner():
                 all_samples = fn(init_samples, model, sigmas, beta,
                                  self.config.sampling.n_steps_each,
                                  self.config.sampling.step_lr,
-                                 verbose=True,
+                                 verbose=False,
                                  denoise=self.config.sampling.denoise)
 
                 for img in all_samples[-1]:

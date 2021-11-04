@@ -11,6 +11,6 @@ Instructions for running experiments:
     `python main.py --config <config_file>.yml --doc <save_dir> --beta <experiment_beta> --sample -i <save_dir>`
 4. Metrics (after preparing metric comparison data in single-level `<compare_dir>`):
 
-    Windows: `.\metrics.ps1 .\exp\image_samples\<save_dir>\ .\exp\datasets\<compare_dir>\`
+    Windows: `.\metrics.ps1 .\exp\fid_samples\<save_dir>\ .\exp\datasets\<compare_dir>\`
 
-    Linux - `./metrics.sh ./exp/image_samples/<save_dir>/ ./exp/datasets/<compare_dir>/`
+    Linux - `./metrics.sh ./exp/fid_samples/<save_dir>/ ./exp/datasets/<compare_dir>/`
