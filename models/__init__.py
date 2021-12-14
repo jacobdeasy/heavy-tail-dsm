@@ -108,7 +108,8 @@ def ald(x: Tensor,
                 grad_norm = torch.norm(grad.view(grad.shape[0], -1), dim=-1).mean()
                 # grad_norms.append(grad_norm)
                 noise_norm = torch.norm(noise.view(noise.shape[0], -1), dim=-1).mean()
-                x += step_size * grad + np.sqrt(step_size * 2) * noise
+                noise, _ = get_noise(x, beta=2.0, sigmas=torch.tensor(1.0, device=x.device))
+                x += step_size * grad + (2 * step_size) ** 0.5 * noise
 
                 image_norm = torch.norm(x.view(x.shape[0], -1), dim=-1).mean()
                 snr = np.sqrt(step_size / 2.) * grad_norm / noise_norm

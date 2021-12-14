@@ -37,19 +37,19 @@ def get_dataset(args: argparse.Namespace,
         dataset = MNIST(os.path.join(args.exp, 'datasets', 'mnist'), train=True, download=True,
                         transform=train_transform)
         # dataset.data = torch.cat((
-        #     dataset.data[(dataset.targets == 1)],
-        #     dataset.data[(dataset.targets == 8)][:3000]))
+        #     dataset.data[(dataset.targets == 1)][:600],
+        #     dataset.data[(dataset.targets == 8)]))
         # dataset.targets = torch.cat((
-        #     dataset.targets[(dataset.targets == 1)],
-        #     dataset.targets[(dataset.targets == 8)][:3000]))
+        #     dataset.targets[(dataset.targets == 1)][:600],
+        #     dataset.targets[(dataset.targets == 8)]))
         test_dataset = MNIST(os.path.join(args.exp, 'datasets', 'mnist_test'), train=False, download=True,
                              transform=test_transform)
         # test_dataset.data = torch.cat((
-        #     test_dataset.data[(test_dataset.targets == 1)],
-        #     test_dataset.data[(test_dataset.targets == 8)][:500]))
+        #     test_dataset.data[(test_dataset.targets == 1)][:100],
+        #     test_dataset.data[(test_dataset.targets == 8)]))
         # test_dataset.targets = torch.cat((
-        #     test_dataset.targets[(test_dataset.targets == 1)],
-        #     test_dataset.targets[(test_dataset.targets == 8)][:500]))
+        #     test_dataset.targets[(test_dataset.targets == 1)][:100],
+        #     test_dataset.targets[(test_dataset.targets == 8)]))
 
     elif config.data.dataset == 'FashionMNIST':
         dataset = FashionMNIST(os.path.join(args.exp, 'datasets', 'mnist'), train=True, download=True,
