@@ -90,7 +90,6 @@ class NCSNv2(nn.Module):
         else:
             return mu, kl
 
-    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
@@ -186,7 +185,6 @@ class NCSNv2Deeper(nn.Module):
             x = m(x)
         return x
 
-    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
@@ -289,7 +287,6 @@ class NCSNv2Deepest(nn.Module):
             x = m(x)
         return x
 
-    @torch.cuda.amp.autocast()
     def forward(self, x, y):
         if not self.logit_transform and not self.rescaled:
             h = 2 * x - 1.
